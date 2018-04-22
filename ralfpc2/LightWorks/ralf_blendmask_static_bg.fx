@@ -40,9 +40,15 @@ sampler SgSampler = sampler_state { Texture = <sg>; };
 // with a a leading '_' character
 //--------------------------------------------------------------//
 
-float RgbThreshold
+int SetTechnique
 <
-   string Description = "RGB Threshold";
+   string Description = "Method";
+   string Enum = "RGB,Colour,Luminosity";
+> = 0;
+
+float Threshold
+<
+   string Description = "Threshold";
    float MinVal = 0.00;
    float MaxVal = 1.00;
 > = 0.05;
@@ -53,6 +59,11 @@ float Opacity
    float MinVal = 0.00;
    float MaxVal = 1.00;
 > = 1.0;
+
+bool Reveal
+<
+   string Description = "Reveal";
+> = false;
 
 #pragma warning ( disable : 3571 )
 
@@ -74,22 +85,65 @@ float Opacity
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ff471376(v=vs.85).aspx
 
 
-float4 blend_main( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR
-{
-   float4 fg = tex2D( FgSampler, xy1 );
-   float4 bg = tex2D( BgSampler, xy2 );
-   float4 sg = tex2D( SgSampler, xy3 );
-   
-   float4 ret = abs(fg - sg);
-   float threshold = ( ret.r + ret.g + ret.b ) / 3.0;
-   
-   float alpha = (threshold < RgbThreshold ? 0.0 : 1.0 );
+float4 blend_rgb( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR {
+    float4 fg = tex2D( FgSampler, xy1 );
+    float4 bg = tex2D( BgSampler, xy2 );
+    float4 sg = tex2D( SgSampler, xy3 );
 
-   ret = lerp( bg, fg, alpha * Opacity );
-   ret.a = 1.0;
+    float4 ret = abs(fg - sg);
+    float threshold = ( ret.r + ret.g + ret.b ) / 3.0;
 
-   return ret;
+    float alpha = (threshold < Threshold ? 0.0 : 1.0 );
+
+    if (Reveal) { fg = 1.0; }
+
+    ret = lerp( bg, fg, alpha * Opacity );
+    ret.a = 1.0;
+
+    return ret;
 }
+
+float4 blend_chroma( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR {
+    float4 fg = tex2D( FgSampler, xy1 );
+    float4 bg = tex2D( BgSampler, xy2 );
+    float4 sg = tex2D( SgSampler, xy3 );
+
+    float fgCr = ( 0.439  * fg.r ) - ( 0.368 * fg.g ) - ( 0.071 * fg.b ) + 0.5;
+    float fgCb = ( -0.148 * fg.r ) - ( 0.291 * fg.g ) + ( 0.439 * fg.b ) + 0.5;
+    float sgCr = ( 0.439  * sg.r ) - ( 0.368 * sg.g ) - ( 0.071 * sg.b ) + 0.5;
+    float sgCb = ( -0.148 * sg.r ) - ( 0.291 * sg.g ) + ( 0.439 * sg.b ) + 0.5;
+
+    float threshold = ( abs(fgCr - sgCr) + abs(fgCb - sgCb) ) / 2.0;
+
+    float alpha = (threshold < Threshold ? 0.0 : 1.0 );
+
+    if (Reveal) { fg = 1.0; }
+
+    float4 ret = lerp( bg, fg, alpha * Opacity );
+    ret.a = 1.0;
+
+    return ret;
+}
+
+float4 blend_luma( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR {
+    float4 fg = tex2D( FgSampler, xy1 );
+    float4 bg = tex2D( BgSampler, xy2 );
+    float4 sg = tex2D( SgSampler, xy3 );
+
+    float fgY = ( 0.257 * fg.r ) + ( 0.504 * fg.g ) + ( 0.098 * fg.b ) + 0.0625;
+    float sgY = ( 0.257 * sg.r ) + ( 0.504 * sg.g ) + ( 0.098 * sg.b ) + 0.0625;
+    float threshold = abs(fgY - sgY);
+
+    float alpha = (threshold < Threshold ? 0.0 : 1.0 );
+
+    if (Reveal) { fg = 1.0; }
+
+    float4 ret = lerp( bg, fg, alpha * Opacity );
+    ret.a = 1.0;
+
+    return ret;
+}
+
 
 
 //--------------------------------------------------------------
@@ -98,11 +152,7 @@ float4 blend_main( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : 
 // Specifies the order of passes (we only have a single pass, so
 // there's not much to do)
 //--------------------------------------------------------------
-technique StaticBgFxTechnique
-{
-   pass SinglePass
-   {
-      PixelShader = compile PROFILE blend_main();
-   }
-}
 
+technique RGB        { pass SinglePass { PixelShader = compile PROFILE blend_rgb(); } }
+technique Colour     { pass SinglePass { PixelShader = compile PROFILE blend_chroma(); } }
+technique Luminosity { pass SinglePass { PixelShader = compile PROFILE blend_luma(); } }
