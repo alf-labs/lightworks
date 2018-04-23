@@ -1,6 +1,15 @@
 //--------------------------------------------------------------//
-// Ralf Static Background Removal
+// Author: Ralf <ralfoide at gmail>
+// Effect: Static Background Blending Mask
 //
+// Description: This effect is a sort of cheap rotoscoping fx for a very
+// specific case where 2 videos shots are taken for the exact same scene
+// with a fixed camera setup. One shot is considered the background and
+// used as-is. The second shot is considered the foreground. Motion from
+// the foreground is extracted by comparing with a static background
+// (a shot of the background with no motion at all).
+// The foreground motion is then blended on top of the background shot.
+// 
 // 3 tracks representing the same scene:
 // - SG: Static background ("static ground") of the scene
 // - BG: Background action of the scene
@@ -12,12 +21,56 @@
 // In other words: if foreground has action (!= static scene), use it.
 // Otherwise default to the background action.
 //
+// Implementation in 2 passes:
+// - Pass 1: Diff FG vs SG. Compare with threshold. Generate FG with alpha = 0 or 1.
+// - Pass 2: Naive/cheap noise reduction on alpha mask + combine FG with BG.
+//
+// The noise reduction sums the alpha of a 3x3 pixel box. This acts on the mask generated
+// in pass 1. If a mask pixel doesn't have enough neighbors, it's probably noise.
+// If it has many neighbors, it's probably part of the mask even if that pixel is not.
+//
+// Parameters:
+// - Method: Diff on RGB, Chroma or Luma. Most of the time RGB should be enough/better.
+//
+// - Threshold: How much difference between FG and SG is considered as motion.
+//
+// - FG Opacity: Typical multiplier when blending FG on BG.
+//
+// - Reveal: Show mask as white for debugging parameters.
+//
+// - Exclude Below: For each mask pixel, how many neighbors are also part of the mask?
+//      If the number is equal or below this parameter, this mask pixel is removed.
+//
+// - Include Above: For each mask pixel, how many neighbors are also part of the mask?
+//      If the number if equal or above this paraeter, this pixel is added to the mask.
+//
+//
+// License: MIT.
+//
+// Copyright 2018 Ralf <ralfoide at gmail>
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this
+// software and associated documentation files (the "Software"), to deal in the Software
+// without restriction, including without limitation the rights to use, copy, modify, merge,
+// publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
+// to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or
+// substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+// PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+// FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+//
 //--------------------------------------------------------------//
 int _LwksEffectInfo
 <
    string EffectGroup = "GenericPixelShader";
-   string Description = "Ralf Blend Static Background";       // The title
-   string Category    = "Mixes";                  // Governs the category that the effect appears in in Lightworks
+   string Description = "Ralf Blend Static Background";
+   string Category    = "Mixes";
 > = 0;
 
 //--------------------------------------------------------------//
@@ -36,11 +89,7 @@ sampler SgSampler = sampler_state { Texture = <sg>; };
 sampler P1Sampler = sampler_state { Texture = <OutputPass1>; };
 
 //--------------------------------------------------------------//
-// Define parameters here.
-//
-// The Lightworks application will automatically generate
-// sliders/controls for all parameters which do not start
-// with a a leading '_' character
+// Parameters
 //--------------------------------------------------------------//
 
 int SetTechnique
@@ -88,14 +137,7 @@ float _OutputHeight = 1.0;
 #pragma warning ( disable : 3571 )
 
 //--------------------------------------------------------------
-// Pixel Shader
-//
-// This section defines the code which the GPU will
-// execute for every pixel in an output image.
-//
-// Note that pixels are processed out of order, in parallel.
-// Using shader model 2.0, so there's a 64 instruction limit -
-// use multple passes if you need more.
+// Pixel Shaders
 //--------------------------------------------------------------
 
 // Reference: VS2005 shader language (HLSL)
@@ -104,7 +146,7 @@ float _OutputHeight = 1.0;
 // Intrinsic functions:
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ff471376(v=vs.85).aspx
 //
-// Extra doc:
+// LWKS doc:
 // https://www.lwks.com/index.php?option=com_kunena&func=view&catid=7&id=143678&Itemid=81
 
 
@@ -182,10 +224,7 @@ float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD0, float2 xy2 : TEXCOORD2)
 
 
 //--------------------------------------------------------------
-// Technique
-//
-// Specifies the order of passes (we only have a single pass, so
-// there's not much to do)
+// Techniques
 //--------------------------------------------------------------
 
 technique RGB {
