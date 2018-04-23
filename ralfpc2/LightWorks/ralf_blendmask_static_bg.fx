@@ -28,9 +28,12 @@ texture fg;
 texture bg;
 texture sg;
 
+texture OutputPass1 : RenderColorTarget < float2 ViewportRatio={1.0,1.0}; >;
+
 sampler FgSampler = sampler_state { Texture = <fg>; };
 sampler BgSampler = sampler_state { Texture = <bg>; };
 sampler SgSampler = sampler_state { Texture = <sg>; };
+sampler P1Sampler = sampler_state { Texture = <OutputPass1>; };
 
 //--------------------------------------------------------------//
 // Define parameters here.
@@ -65,6 +68,23 @@ bool Reveal
    string Description = "Reveal";
 > = false;
 
+float ExcludeBelow
+<
+   string Description = "Exclude Below";
+   float MinVal = -1.00;
+   float MaxVal = 10.00;
+> = 3.0;
+
+float IncludeAbove
+<
+   string Description = "Include Above";
+   float MinVal = -1.00;
+   float MaxVal = 10.00;
+> = 7.0;
+
+float _OutputWidth  = 1.0;
+float _OutputHeight = 1.0;
+
 #pragma warning ( disable : 3571 )
 
 //--------------------------------------------------------------
@@ -83,30 +103,25 @@ bool Reveal
 //
 // Intrinsic functions:
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ff471376(v=vs.85).aspx
+//
+// Extra doc:
+// https://www.lwks.com/index.php?option=com_kunena&func=view&catid=7&id=143678&Itemid=81
 
 
-float4 blend_rgb( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR {
-    float4 fg = tex2D( FgSampler, xy1 );
-    float4 bg = tex2D( BgSampler, xy2 );
-    float4 sg = tex2D( SgSampler, xy3 );
+float4 ps_blend_rgb( float2 xy1 : TEXCOORD1 ) : COLOR {
+    float4 fg = tex2D(FgSampler, xy1);
+    float4 sg = tex2D(SgSampler, xy1);
 
     float4 ret = abs(fg - sg);
-    float threshold = ( ret.r + ret.g + ret.b ) / 3.0;
+    float threshold = (ret.r + ret.g + ret.b) / 3.0;
 
-    float alpha = (threshold < Threshold ? 0.0 : 1.0 );
-
-    if (Reveal) { fg = 1.0; }
-
-    ret = lerp( bg, fg, alpha * Opacity );
-    ret.a = 1.0;
-
-    return ret;
+    fg.a = (threshold < Threshold ? 0.0 : 1.0);
+    return fg;
 }
 
-float4 blend_chroma( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR {
-    float4 fg = tex2D( FgSampler, xy1 );
-    float4 bg = tex2D( BgSampler, xy2 );
-    float4 sg = tex2D( SgSampler, xy3 );
+float4 ps_blend_chroma( float2 xy1 : TEXCOORD1 ) : COLOR {
+    float4 fg = tex2D(FgSampler, xy1);
+    float4 sg = tex2D(SgSampler, xy1);
 
     float fgCr = ( 0.439  * fg.r ) - ( 0.368 * fg.g ) - ( 0.071 * fg.b ) + 0.5;
     float fgCb = ( -0.148 * fg.r ) - ( 0.291 * fg.g ) + ( 0.439 * fg.b ) + 0.5;
@@ -115,30 +130,50 @@ float4 blend_chroma( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 
 
     float threshold = ( abs(fgCr - sgCr) + abs(fgCb - sgCb) ) / 2.0;
 
-    float alpha = (threshold < Threshold ? 0.0 : 1.0 );
-
-    if (Reveal) { fg = 1.0; }
-
-    float4 ret = lerp( bg, fg, alpha * Opacity );
-    ret.a = 1.0;
-
-    return ret;
+    fg.a = (threshold < Threshold ? 0.0 : 1.0 );
+    return fg;
 }
 
-float4 blend_luma( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : TEXCOORD3 ) : COLOR {
-    float4 fg = tex2D( FgSampler, xy1 );
-    float4 bg = tex2D( BgSampler, xy2 );
-    float4 sg = tex2D( SgSampler, xy3 );
+float4 ps_blend_luma( float2 xy1 : TEXCOORD1 ) : COLOR {
+    float4 fg = tex2D(FgSampler, xy1);
+    float4 sg = tex2D(SgSampler, xy1);
 
     float fgY = ( 0.257 * fg.r ) + ( 0.504 * fg.g ) + ( 0.098 * fg.b ) + 0.0625;
     float sgY = ( 0.257 * sg.r ) + ( 0.504 * sg.g ) + ( 0.098 * sg.b ) + 0.0625;
     float threshold = abs(fgY - sgY);
 
-    float alpha = (threshold < Threshold ? 0.0 : 1.0 );
+    fg.a = (threshold < Threshold ? 0.0 : 1.0);
+    return fg;
+}
 
+float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD0, float2 xy2 : TEXCOORD2) : COLOR {
+    float4 fg = tex2D(P1Sampler, uv );
+    float4 bg = tex2D(BgSampler, xy2);
+
+    float w1 = 1.0 / _OutputWidth;
+    float h1 = 1.0 / _OutputHeight;
+
+    float alpha = fg.a;
+
+    uv.x -= w1;
+    uv.y -= h1;
+    float2 uv2 = uv;
+    float alpha_sum = 0.0;
+    for (int y = 0; y < 3; y++) {
+        uv2.x = uv2.x;
+        for (int x = 0; x < 3; x++) {
+            uv2.x += w1;
+            float4 f2 = tex2D(P1Sampler, uv2);
+            alpha_sum += f2.a;
+        }
+        uv2.y += h1;
+    }
+    if (alpha_sum <= ExcludeBelow) { alpha = 0.0; }
+    if (alpha_sum >= IncludeAbove) { alpha = 1.0; }
+    
     if (Reveal) { fg = 1.0; }
 
-    float4 ret = lerp( bg, fg, alpha * Opacity );
+    float4 ret = lerp(bg, fg, alpha * Opacity);
     ret.a = 1.0;
 
     return ret;
@@ -153,6 +188,38 @@ float4 blend_luma( float2 xy1 : TEXCOORD1, float2 xy2 : TEXCOORD2, float2 xy3 : 
 // there's not much to do)
 //--------------------------------------------------------------
 
-technique RGB        { pass SinglePass { PixelShader = compile PROFILE blend_rgb(); } }
-technique Colour     { pass SinglePass { PixelShader = compile PROFILE blend_chroma(); } }
-technique Luminosity { pass SinglePass { PixelShader = compile PROFILE blend_luma(); } }
+technique RGB {
+    pass Pass1 <
+        string Script = "RenderColorTarget0 = OutputPass1;";
+    > { 
+        PixelShader = compile PROFILE ps_blend_rgb();
+    }
+    
+    pass Pass2 { 
+        PixelShader = compile PROFILE ps_noise_redux_and_combine();
+    }
+}
+
+technique Colour {
+    pass Pass1 <
+        string Script = "RenderColorTarget0 = OutputPass1;";
+    > { 
+        PixelShader = compile PROFILE ps_blend_chroma();
+    }
+    
+    pass Pass2 { 
+        PixelShader = compile PROFILE ps_noise_redux_and_combine();
+    }
+}
+
+technique Luminosity {
+    pass Pass1 <
+        string Script = "RenderColorTarget0 = OutputPass1;";
+    > { 
+        PixelShader = compile PROFILE ps_blend_luma();
+    }
+    
+    pass Pass2 { 
+        PixelShader = compile PROFILE ps_noise_redux_and_combine();
+    }
+}
