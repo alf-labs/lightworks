@@ -2,18 +2,22 @@
 // Author: Ralf <ralfoide at gmail>
 // Effect: Static Background Blending Mask
 //
+//-------------
 // Description: This effect is a sort of cheap rotoscoping fx for a very
-// specific case where 2 videos shots are taken for the exact same scene
-// with a fixed camera setup. One shot is considered the background and
-// used as-is. The second shot is considered the foreground. Motion from
-// the foreground is extracted by comparing with a static background
-// (a shot of the background with no motion at all).
-// The foreground motion is then blended on top of the background shot.
+// specific case where 2 videos clips are taken for the exact same scene
+// with a fixed camera setup. One clip is considered the background and
+// used as-is. The second clip is considered the foreground. Delta from
+// the foreground is extracted by comparing with a reference background
+// (typically a clip of the scene with no motion at all).
+// The foreground delta is then blended on top of the background clip.
 // 
+//-------
+// Usage:
+//
 // 3 tracks representing the same scene:
-// - SG: Static background ("static ground") of the scene
-// - BG: Background action of the scene
-// - FG: Foreground action of the scene
+// - SG: Reference  clip ("aka static background") of the scene
+// - BG: Background clip of the scene
+// - FG: Foreground clip of the scene
 //
 // Computation:
 // - if FG == SG, use BG, otherwise use FG.
@@ -29,10 +33,11 @@
 // in pass 1. If a mask pixel doesn't have enough neighbors, it's probably noise.
 // If it has many neighbors, it's probably part of the mask even if that pixel is not.
 //
+//------------
 // Parameters:
-// - Method: Diff on RGB, Chroma or Luma. Most of the time RGB should be enough/better.
+// - Method: Diff on RGB, Chroma or Luma.
 //
-// - Threshold: How much difference between FG and SG is considered as motion.
+// - Threshold: How much difference between FG and SG is considered for masking.
 //
 // - FG Opacity: Typical multiplier when blending FG on BG.
 //
@@ -44,6 +49,16 @@
 // - Include Above: For each mask pixel, how many neighbors are also part of the mask?
 //      If the number if equal or above this paraeter, this pixel is added to the mask.
 //
+//--------------
+// Known Issues:
+// The mask is computed by comparing the foreground clip with a reference image.
+// Since the comparison is done by substracting colors and comparing to zero, there
+// is a known effect where dark overlaping areas cannot be distinguished and are
+// considered part of the mask. In other words, this only works if the foreground
+// is properly constrasted compared to the reference image, exactly like one would
+// avoid green colors on a greenscreen.
+//
+//--------------------------------------------------------------//
 //
 // License: MIT.
 //
@@ -228,9 +243,7 @@ float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD0, float2 xy2 : TEXCOORD2)
 //--------------------------------------------------------------
 
 technique RGB {
-    pass Pass1 <
-        string Script = "RenderColorTarget0 = OutputPass1;";
-    > { 
+    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > { 
         PixelShader = compile PROFILE ps_blend_rgb();
     }
     
@@ -240,9 +253,7 @@ technique RGB {
 }
 
 technique Colour {
-    pass Pass1 <
-        string Script = "RenderColorTarget0 = OutputPass1;";
-    > { 
+    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > { 
         PixelShader = compile PROFILE ps_blend_chroma();
     }
     
@@ -252,9 +263,7 @@ technique Colour {
 }
 
 technique Luminosity {
-    pass Pass1 <
-        string Script = "RenderColorTarget0 = OutputPass1;";
-    > { 
+    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > { 
         PixelShader = compile PROFILE ps_blend_luma();
     }
     
