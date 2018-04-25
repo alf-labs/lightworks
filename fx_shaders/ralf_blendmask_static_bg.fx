@@ -1,6 +1,6 @@
 //--------------------------------------------------------------//
 // Author: Ralf <ralfoide at gmail>
-// Effect: Static Background Blending Mask
+// Effect: Delta Mask + Blend
 //
 //-------------
 // Description: This effect is a sort of cheap rotoscoping fx for a very
@@ -81,11 +81,23 @@
 // DEALINGS IN THE SOFTWARE.
 //
 //--------------------------------------------------------------//
+
+// Reference: VS2005 shader language (HLSL)
+// https://msdn.microsoft.com/en-us/library/windows/desktop/bb509615(v=vs.85).aspx
+//
+// Intrinsic functions:
+// https://msdn.microsoft.com/en-us/library/windows/desktop/ff471376(v=vs.85).aspx
+//
+// LWKS doc:
+// https://www.lwks.com/index.php?option=com_kunena&func=view&catid=7&id=143678&Itemid=81
+
+
 int _LwksEffectInfo
 <
    string EffectGroup = "GenericPixelShader";
-   string Description = "Ralf Blend Static Background";
+   string Description = "Ralf Delta Mask Blend";
    string Category    = "Mixes";
+   string SubCategory = "User Effects";
 > = 0;
 
 //--------------------------------------------------------------//
@@ -96,12 +108,19 @@ texture fg;
 texture bg;
 texture sg;
 
-texture OutputPass1 : RenderColorTarget < float2 ViewportRatio={1.0,1.0}; >;
+texture OutputPass1 : RenderColorTarget;
 
 sampler FgSampler = sampler_state { Texture = <fg>; };
 sampler BgSampler = sampler_state { Texture = <bg>; };
 sampler SgSampler = sampler_state { Texture = <sg>; };
-sampler P1Sampler = sampler_state { Texture = <OutputPass1>; };
+sampler P1Sampler = sampler_state { 
+    Texture = <OutputPass1>; 
+    AddressU  = Clamp;
+    AddressV  = Clamp;
+    MinFilter = Linear;
+    MagFilter = Linear;
+    MipFilter = Linear;
+};
 
 //--------------------------------------------------------------//
 // Parameters
@@ -109,7 +128,7 @@ sampler P1Sampler = sampler_state { Texture = <OutputPass1>; };
 
 int SetTechnique
 <
-   string Description = "Method";
+   string Description = "Diff on";
    string Enum = "RGB,Colour,Luminosity";
 > = 0;
 
@@ -134,6 +153,7 @@ bool Reveal
 
 float ExcludeBelow
 <
+   string Group = "Noise Reduction";
    string Description = "Exclude Below";
    float MinVal = -1.00;
    float MaxVal = 10.00;
@@ -141,6 +161,7 @@ float ExcludeBelow
 
 float IncludeAbove
 <
+   string Group = "Noise Reduction";
    string Description = "Include Above";
    float MinVal = -1.00;
    float MaxVal = 10.00;
@@ -149,20 +170,9 @@ float IncludeAbove
 float _OutputWidth  = 1.0;
 float _OutputHeight = 1.0;
 
-#pragma warning ( disable : 3571 )
-
 //--------------------------------------------------------------
 // Pixel Shaders
 //--------------------------------------------------------------
-
-// Reference: VS2005 shader language (HLSL)
-// https://msdn.microsoft.com/en-us/library/windows/desktop/bb509615(v=vs.85).aspx
-//
-// Intrinsic functions:
-// https://msdn.microsoft.com/en-us/library/windows/desktop/ff471376(v=vs.85).aspx
-//
-// LWKS doc:
-// https://www.lwks.com/index.php?option=com_kunena&func=view&catid=7&id=143678&Itemid=81
 
 
 float4 ps_blend_rgb( float2 xy1 : TEXCOORD1 ) : COLOR {
@@ -203,7 +213,7 @@ float4 ps_blend_luma( float2 xy1 : TEXCOORD1 ) : COLOR {
     return fg;
 }
 
-float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD0, float2 xy2 : TEXCOORD2) : COLOR {
+float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD1, float2 xy2 : TEXCOORD2) : COLOR {
     float4 fg = tex2D(P1Sampler, uv );
     float4 bg = tex2D(BgSampler, xy2);
 
@@ -212,23 +222,23 @@ float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD0, float2 xy2 : TEXCOORD2)
 
     float alpha = fg.a;
 
-    uv.x -= w1;
-    uv.y -= h1;
-    float2 uv2 = uv;
+    float2 uv1 = uv - float2(w1, h1);
+    float2 uv2 = uv1;
     float alpha_sum = 0.0;
     for (int y = 0; y < 3; y++) {
-        uv2.x = uv2.x;
         for (int x = 0; x < 3; x++) {
-            uv2.x += w1;
             float4 f2 = tex2D(P1Sampler, uv2);
             alpha_sum += f2.a;
+            uv2.x += w1;
         }
+        uv2.x = uv1.x;
         uv2.y += h1;
     }
+    alpha = alpha_sum / 9.0;
     if (alpha_sum <= ExcludeBelow) { alpha = 0.0; }
     if (alpha_sum >= IncludeAbove) { alpha = 1.0; }
     
-    if (Reveal) { fg = 1.0; }
+    if (Reveal) { fg = 1.0; } 
 
     float4 ret = lerp(bg, fg, alpha * Opacity);
     ret.a = 1.0;
