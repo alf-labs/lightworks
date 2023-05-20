@@ -1,0 +1,390 @@
+FuRegisterClass("ExampleRalfFuse", CT_Tool, {
+    REGS_Name = "Example_Ralf_Fuse",
+    REGS_Category = "Transform",
+    REGS_OpIconString = "E1BC",
+    REGS_OpDescription = "Example1",
+    })
+
+function Create()
+    _inMethod = self:AddInput("Method", "Method", { --UI Label, Internal Ref
+		LINKID_DataType = "Number",
+		INPID_InputControl = "MultiButtonControl",
+		INP_Default = 0.0,
+		{ MBTNC_AddButton = "Bypass", MBTNCD_ButtonWidth = 0.3, },      -- 0
+		{ MBTNC_AddButton = "Down Top", MBTNCD_ButtonWidth = 0.3, },    -- 1
+		{ MBTNC_AddButton = "Flood Fill", MBTNCD_ButtonWidth = 0.3, },  -- 2
+		INP_DoNotifyChanged = true,
+	})
+
+    _inOverlay = self:AddInput("Show Overlay", "Overlay", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Integer = true,
+        INP_Default = 0.0,
+        INP_DoNotifyChanged = true,
+        })
+
+    _inDetection = self:AddInput("Show Detection", "Detection", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Integer = true,
+        INP_Default = 0.0,
+        INP_DoNotifyChanged = true,
+        })
+    
+    _inCenter = self:AddInput("Center", "Center", { --UI Label, Internal Ref
+        LINKID_DataType = "Point", -- Returns 2 values X and Y
+        INPID_InputControl = "OffsetControl", -- Type of Control
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.5,
+        INP_DefaultY = 0.5,
+        })
+
+    _inLThreshold = self:AddInput("Luma Delta", "LThreshold", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.05,
+        ICD_Center = 1,
+        })
+    
+    _inWidth = self:AddInput("Half Width", "Width", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.04,
+        ICD_Center = 1,
+        })			
+    
+    _inBorderWidth = self:AddInput("Border Width", "BorderWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.005,
+        ICD_Center = 1,
+        })			
+    
+    _inMinHeight = self:AddInput("Min Height", "MinHeight", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.5,
+        INP_Default = 0.0,
+        ICD_Center = 1,
+        })	
+    
+    _inMaxHeight = self:AddInput("Max Height", "MaxHeight", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 0.5,
+        INP_Default = 0.4,
+        ICD_Center = 1,
+        })	
+    
+    InImage = self:AddInput("Input", "Input", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+
+    OutImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+end
+ 
+function Process(req)
+    _tp = Pixel()
+    _img = InImage:GetValue(req)
+    _method = _inMethod:GetValue(req).Value
+    _overlay = _inOverlay:GetValue(req).Value
+    _debugDetection = _inDetection:GetValue(req).Value
+    _Lthreshold = _inLThreshold:GetValue(req).Value
+	_borderw = _inBorderWidth:GetValue(req).Value
+	_fillw = _inWidth:GetValue(req).Value
+	_fillh1 = _inMinHeight:GetValue(req).Value
+	_fillh2 = _inMaxHeight:GetValue(req).Value
+    local center = _inCenter:GetValue(req)
+
+    -- copy input image to _tmp image
+    _tmp = _img:Copy()
+    -- convert to HSL (R=H, G=L, B=S)
+    _tmp:CSConvert("RGB", "HLS")
+
+    _iw1 = _img.Width - 1
+    _ih1 = _img.Height - 1
+    _borderw = math.floor(_borderw * _iw1)
+    _fillw = math.floor(_fillw * _iw1)
+    _fillh1 = math.min(math.floor(_fillh1 * _ih1), _ih1)
+    _fillh2 = math.min(math.floor(_fillh2 * _ih1), _ih1)
+    if _fillh1 > _fillh2 then
+        a = _fillh1
+        _fillh1 = _fillh2
+        _fillh2 = a
+    end
+    _cx = math.floor(center.X * _iw1)
+    _cy = math.floor(center.Y * _ih1)
+    _cy = math.max(_fillh1, math.min(_fillh2, _cy))
+    _tmp:GetPixel(_cx, _cy, _tp)
+    
+    Lref = _tp.G  -- (R=H, G=L, B=S)
+    _x1 = math.max(0, _cx - _fillw)
+    _x2 = math.min(_iw1, _cx + _fillw)
+    Lmin, Lmax, Ldelta = ScanLine(_cy)
+
+    Lref = (Lref - Lmin) / Ldelta -- reshape to min/max
+    --print(_method .. " center: " .. _cx .. " x " .. _cy .. " : " .. Lref .. ", min " .. Lmin .. " max " .. Lmax)
+
+    _out = _img:Copy()
+
+    if _method == 0 then
+        -- bypass, out is unchanged
+    elseif _method == 1 then
+        Method0()
+    elseif _method == 2 then
+        Method1(Lmin, Lmax, Ldelta)
+    end
+
+    if _overlay == 1 then
+        DrawOverlay()
+    end
+
+    -- output result
+    OutImage:Set(req, _out)
+end
+
+function Method0(Lmin, Lmax, Ldelta)
+    -- Method 0: fill from bottom till max height
+    local Lref, Lval
+    local Lmin, Lmax, Ldelta
+    for y = 0, _fillh2 do
+        Lmin, Lmax, Ldelta = ScanLine(y)
+
+        _tmp:GetPixel(_cx, y, _tp)
+        Lref = _tp.G  -- (R=H, G=L, B=S)
+        Lref = (Lref - Lmin) / Ldelta -- reshape to min/max
+
+        for x = _x1, _x2 do
+            _tmp:GetPixel(x, y, _tp)
+            Lval = _tp.G  -- (R=H, G=L, B=S)
+            Lval = (Lval - Lmin) / Ldelta -- reshape to min/max
+            if math.abs(Lval - Lref) < _Lthreshold then
+                _tp.R = Lval * 10 
+                _tp.G = 0
+                _tp.B = 0
+                _out:SetPixel(x, y, _tp)
+            else 
+                _img:GetPixel(x, y, _tp)
+                _tp.R = _tp.R / 2
+                _tp.G = _tp.G / 2
+                _tp.B = _tp.B / 2
+                _out:SetPixel(x, y, _tp)
+            end
+        end
+    end
+end
+
+function Method1(Lmin, Lmax, Ldelta)
+    -- Method 1: flood-fill starting at _cx/_cy
+    local cxStart, cxEnd = FindEdges(_cx, _cy, Lmin, Lmax, Ldelta)
+    FillLine(cxStart, cxEnd, _cy)
+
+    local xStart = cxStart
+    local xEnd = cxEnd
+    local xStart2, xEnd2
+    local rx
+    for y = _cy + 1, _fillh2 do
+        -- use center as a reference
+        rx = math.floor((xStart + xEnd) / 2)
+
+        -- scan line and find new edges
+        Lmin, Lmax, Ldelta = ScanLine(y)
+        xStart2, xEnd2 = FindEdges(rx, y, Lmin, Lmax, Ldelta)
+
+        -- average edges with a 3/4 + 1/4 ratio to smooth it _out
+        xStart = math.floor((xStart * 3 + xStart2) / 4)
+        xEnd = math.floor((xEnd * 3 + xEnd2) / 4)
+
+        FillLine(xStart, xEnd, y)
+    end
+
+    xStart = cxStart
+    xEnd = cxEnd
+    for y = _cy - 1, _fillh1, -1 do
+        -- use center as a reference
+        rx = math.floor((xStart + xEnd) / 2)
+
+        -- scan line and find new edges
+        Lmin, Lmax, Ldelta = ScanLine(y)
+        xStart2, xEnd2 = FindEdges(rx, y, Lmin, Lmax, Ldelta)
+
+        -- average edges with a 3/4 + 1/4 ratio to smooth it _out
+        xStart = math.floor((xStart * 3 + xStart2) / 4)
+        xEnd = math.floor((xEnd * 3 + xEnd2) / 4)
+
+        FillLine(xStart, xEnd, y)
+    end
+end
+
+function ScanLine(dy)
+    local Lval, Ldelta
+    local Lmax = 0.0
+    local Lmin = 1.0
+    for x = _x1, _x2 do
+        _img:GetPixel(x, dy, _tp)
+        Lval = _tp.G  -- (R=H, G=L, B=S)
+        if Lval < Lmin then
+            Lmin = Lval
+        end
+        if Lval > Lmax then
+            Lmax = Lval
+        end
+    end
+    Ldelta = math.max(0.0001, Lmax - Lmin)
+    return Lmin, Lmax, Ldelta
+end
+
+function FindEdges(rx, dy, Lmin, Lmax, Ldelta)
+    _tmp:GetPixel(rx, dy, _tp)
+    local Lval
+    local Lref = _tp.G  -- (R=H, G=L, B=S)
+    Lref = (Lref - Lmin) / Ldelta -- reshape to min/max
+
+    local xStart = _x1
+    for x = rx - 1, _x1, -1 do
+        _tmp:GetPixel(x, dy, _tp)
+        Lval = _tp.G  -- (R=H, G=L, B=S)
+        Lval = (Lval - Lmin) / Ldelta -- reshape to min/max
+
+        if math.abs(Lval - Lref) >= _Lthreshold then
+            xStart = x
+            break
+        end
+    end
+
+    local xEnd = _x2
+    for x = rx + 1, _x2 do
+        _tmp:GetPixel(x, dy, _tp)
+        Lval = _tp.G  -- (R=H, G=L, B=S)
+        Lval = (Lval - Lmin) / Ldelta -- reshape to min/max
+
+        if math.abs(Lval - Lref) >= _Lthreshold then
+            xEnd = x
+            break
+        end
+    end
+
+    return xStart, xEnd
+end
+
+function FillLine(xStart, xEnd, dy)
+    if _debugDetection == 1 then
+        _tp.R = 1
+        _tp.G = 0
+        _tp.B = 0
+        for x = xStart, xEnd do
+            _out:SetPixel(x, dy, _tp)
+        end
+
+        _tp.R = .7
+        _tp.G = .7
+        _tp.B = 0
+        for x = xStart - _borderw, xStart - 1 do
+            _out:SetPixel(x, dy, _tp)
+        end
+        for x = xEnd + 1, xEnd + _borderw do
+            _out:SetPixel(x, dy, _tp)
+        end
+    else
+        local x1, x2, xc, w1, w2
+        x1 = xStart - _borderw
+        x2 = xEnd + _borderw
+        xc = math.floor((x1 + x2) / 2)
+        w1 = xc - x1
+        w2 = x2 - xc
+
+        for x = x1, xc do
+            _img:GetPixel(x - w1, dy, _tp)
+            _out:SetPixel(x, dy, _tp)
+        end
+        for x = xc + 1, x2 do
+            _img:GetPixel(x + w2, dy, _tp)
+            _out:SetPixel(x, dy, _tp)
+        end
+    end
+end
+
+function DrawOverlay()
+    -- Overlay data from center Y line
+    local Lmin, Lmax, Ldelta = ScanLine(_cy)
+
+    _tmp:GetPixel(_cx, _cy, _tp)
+    local Lref = _tp.G  -- (R=H, G=L, B=S)
+    Lref = (Lref - Lmin) / Ldelta -- reshape to min/max
+
+    local lsx = -1
+    local iw2 = math.floor(_iw1 / 2)
+    local bx = math.floor(_iw1 / 4)
+    local by = math.floor(_ih1 / 2)
+    local ldy = by
+    local sx
+    for x = 0, iw2 do
+        sx = math.floor(x / iw2 * 2 * _fillw + _cx - _fillw)
+        if sx ~= lsx then
+            _tmp:GetPixel(sx, _cy, _tp)
+            lsx = sx
+            Lval = _tp.G  -- (R=H, G=L, B=S)
+            Lval = (Lval - Lmin) / Ldelta -- reshape to min/max
+            if math.abs(Lval - Lref) < _Lthreshold then
+                _tp.R = 1
+                _tp.G = 0
+            else
+                _tp.R = 0
+                _tp.G = 1
+            end
+            _tp.B = 0
+            dy = by + math.floor(255 * Lval)
+            dy = math.min(_ih1, dy)
+        end
+        if ldy == dy then
+            DrawLargePixel(bx + x, dy, _tp)
+        else
+            y1 = math.min(dy, ldy)
+            y2 = math.max(dy, ldy)
+            for y = y1, y2 do
+                DrawLargePixel(bx + x, y, _tp)
+            end
+            ldy = dy
+        end
+    end
+    for x = 0, iw2 do
+        _tp.R = 0
+        _tp.G = 0
+        _tp.B = 1
+        dy = by + math.floor(255 * 0)
+        DrawLargePixel(bx + x, dy, _tp)
+        dy = by + math.floor(255 * (Lref - _Lthreshold))
+        DrawLargePixel(bx + x, dy, _tp)
+        dy = by + math.floor(255 * 1)
+        DrawLargePixel(bx + x, dy, _tp)
+    end
+end
+
+function DrawLargePixel(x, dy)
+    _out:SetPixel(x, dy, _tp)
+    _out:SetPixel(x+1, dy, _tp)
+    _out:SetPixel(x+1, dy-1, _tp)
+    _out:SetPixel(x+1, dy+1, _tp)
+    _out:SetPixel(x+2, dy, _tp)
+end
+
+function NotifyChanged(inp, param, time)
+
+    if inp == _inCenter then
+        -- do something?
+    end
+
+end
