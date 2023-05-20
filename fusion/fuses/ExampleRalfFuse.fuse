@@ -31,7 +31,7 @@ function Create()
         INP_Default = 0.0,
         INP_DoNotifyChanged = true,
         })
-    
+
     _inCenter = self:AddInput("Center", "Center", { --UI Label, Internal Ref
         LINKID_DataType = "Point", -- Returns 2 values X and Y
         INPID_InputControl = "OffsetControl", -- Type of Control
@@ -48,7 +48,7 @@ function Create()
         INP_Default = 0.05,
         ICD_Center = 1,
         })
-    
+
     _inWidth = self:AddInput("Half Width", "Width", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -56,8 +56,8 @@ function Create()
         INP_MaxScale = 0.1,
         INP_Default = 0.04,
         ICD_Center = 1,
-        })			
-      
+        })
+
     _inStaticWidth = self:AddInput("Static Width", "StaticWidth", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -74,8 +74,8 @@ function Create()
         INP_MaxScale = 0.1,
         INP_Default = 0.005,
         ICD_Center = 1,
-        })			
-    
+        })
+
     _inBorderSmoothing = self:AddInput("Border Smoothing", "BorderSmoothing", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -83,8 +83,8 @@ function Create()
         INP_MaxScale = 1,
         INP_Default = 0.75,
         ICD_Center = 1,
-        })	
-        
+        })
+
     _inMinHeight = self:AddInput("Min Height", "MinHeight", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -93,7 +93,7 @@ function Create()
         INP_Default = 0.0,
         ICD_Center = 1,
         })
-    
+
     _inMaxHeight = self:AddInput("Max Height", "MaxHeight", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -102,7 +102,16 @@ function Create()
         INP_Default = 0.4,
         ICD_Center = 1,
         })
-    
+
+    _inTopSmoothing = self:AddInput("Top Smoothing", "TopSmoothing", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.02,
+        ICD_Center = 1,
+        })
+
     InImage = self:AddInput("Input", "Input", {
         LINKID_DataType = "Image",
         LINK_Main = 1,
@@ -122,7 +131,8 @@ function Process(req)
     _debugDetection = _inDetection:GetValue(req).Value
     _Lthreshold = _inLThreshold:GetValue(req).Value
 	_borderw = _inBorderWidth:GetValue(req).Value
-	_borderSmoo = _inBorderSmoothing:GetValue(req).Value
+	_borderSmooth = _inBorderSmoothing:GetValue(req).Value
+	_topSmooth = _inTopSmoothing:GetValue(req).Value
 	_staticw = _inStaticWidth:GetValue(req).Value
 	_fillw = _inWidth:GetValue(req).Value
 	_fillh1 = _inMinHeight:GetValue(req).Value
@@ -136,19 +146,20 @@ function Process(req)
 
     _iw1 = _img.Width - 1
     _ih1 = _img.Height - 1
-    _borderw = math.floor(_borderw * _iw1)
-    _staticw = math.floor(_staticw * _iw1)
-    _fillw = math.floor(_fillw * _iw1)
-    _fillh1 = math.min(math.floor(_fillh1 * _ih1), _ih1)
-    _fillh2 = math.min(math.floor(_fillh2 * _ih1), _ih1)
+    _borderw = math.floor(Clamp(_borderw, 0, 1) * _iw1)
+    _staticw = math.floor(Clamp(_staticw, 0, 1) * _iw1)
+    _fillw = math.floor(Clamp(_fillw, 0, 1) * _iw1)
+    _fillh1 = Clamp(math.floor(_fillh1 * _ih1), 0, _ih1)
+    _fillh2 = Clamp(math.floor(_fillh2 * _ih1), 0, _ih1)
+    _topSmooth = math.floor(Clamp(_topSmooth, 0, 1) * _iw1)
     if _fillh1 > _fillh2 then
         a = _fillh1
         _fillh1 = _fillh2
         _fillh2 = a
     end
-    _cx = math.floor(center.X * _iw1)
-    _cy = math.floor(center.Y * _ih1)
-    _cy = math.max(_fillh1, math.min(_fillh2, _cy))
+    _cx = math.floor(Clamp(center.X, 0, 1) * _iw1)
+    _cy = math.floor(Clamp(center.Y, 0, 1) * _ih1)
+    _cy = Clamp(_cy, _fillh1, _fillh2)
     _tmp:GetPixel(_cx, _cy, _tp)
     
     Lref = _tp.G  -- (R=H, G=L, B=S)
@@ -175,6 +186,10 @@ function Process(req)
 
     -- output result
     OutImage:Set(req, _out)
+end
+
+function Clamp(v, min, max)
+    return math.max(min, math.min(max, v))
 end
 
 function Method0(Lmin, Lmax, Ldelta)
@@ -217,7 +232,7 @@ function Method1(Lmin, Lmax, Ldelta)
     local xEnd = cxEnd
     local xStart2, xEnd2
     local rx
-    local s1 = _borderSmoo
+    local s1 = _borderSmooth
     local s2 = 1 - s1
     for y = _cy + 1, _fillh2 do
         -- use center as a reference
@@ -304,7 +319,6 @@ function FindEdges(rx, dy, Lmin, Lmax, Ldelta)
 end
 
 function FillLine(xStart, xEnd, dy)
-
     xStart = xStart - _staticw
     xEnd = xEnd + _staticw
 
@@ -335,37 +349,52 @@ function FillLine(xStart, xEnd, dy)
 
         local p1 = Pixel()
         local p2 = Pixel()
-        _img:GetPixel(x1, dy, p1)
-        _img:GetPixel(x2, dy, p2)
+        --_img:GetPixel(x1, dy, p1)
+        --_img:GetPixel(x2, dy, p2)
+        ImgAveragePixelY3(x1, dy, p1)
+        ImgAveragePixelY3(x2, dy, p2)
+
+        local ah = 1.0
+        if _topSmooth > 0 then
+            local ys = _fillh2 - _topSmooth
+            if dy > ys then
+                ah = 1 - Smoothstep((dy - ys) / _topSmooth)
+            end
+        end
 
         local a1, a2
         for x = 0, _borderw - 1 do
             a1 = Smoothstep(x / _borderw)
-            Merge1(x + x1, dy, a1, p1)
+            Merge1(x + x1, dy, ah * a1, p1)
         end
 
         local dx = xEnd - xStart
         for x = 0, dx do
-            a2 = Smoothstep(x / dx)
+            a2 = x / dx
             a1 = 1 - a2
-            Merge2(x + xStart, dy, a1, p1, a2, p2)
+            Merge2(x + xStart, dy, ah, a1, p1, a2, p2)
         end
         
         for x = 0, _borderw - 1 do
             a2 = 1 - Smoothstep(x / _borderw)
-            Merge1(x + xEnd + 1, dy, a2, p2)
+            Merge1(x + xEnd + 1, dy, ah * a2, p2)
         end
+    end
+end
 
-        --[[ test0
-        for x = x1, xc do
-            _img:GetPixel(x - w1, dy, _tp)
-            _out:SetPixel(x, dy, _tp)
-        end
-        for x = xc + 1, x2 do
-            _img:GetPixel(x + w2, dy, _tp)
-            _out:SetPixel(x, dy, _tp)
-        end
-        ]]
+function ImgAveragePixelY3(x, y, p)
+    _img:GetPixel(x, y, p)
+    if y > 0 and y < _ih1 then
+    -- Percentage: Y 0 = 50%, Y-1 = 25%, Y+1 = 25%
+    _img:GetPixel(x, y-1, _tp)
+        p.R = p.R / 2 + _tp.R / 4
+        p.G = p.G / 2 + _tp.G / 4
+        p.B = p.B / 2 + _tp.B / 4
+
+        _img:GetPixel(x, y+1, _tp)
+        p.R = p.R     + _tp.R / 4
+        p.G = p.G     + _tp.G / 4
+        p.B = p.B     + _tp.B / 4
     end
 end
 
@@ -380,12 +409,25 @@ function Merge1(x, y, a, p)
     _out:SetPixel(x, y, _tp)
 end
 
-function Merge2(x, y, a1, p1, a2, p2)
-    _tp.R = p1.R * a1 + p2.R * a2
-    _tp.G = p1.G * a1 + p2.G * a2
-    _tp.B = p1.B * a1 + p2.B * a2
+function Merge2(x, y, ah, a1, p1, a2, p2)
+    if ah >= 1.0 then
+        _tp.R = p1.R * a1 + p2.R * a2
+        _tp.G = p1.G * a1 + p2.G * a2
+        _tp.B = p1.B * a1 + p2.B * a2
 
-    _out:SetPixel(x, y, _tp)
+        _out:SetPixel(x, y, _tp)
+    else
+        _img:GetPixel(x, y, _tp)
+
+        a1 = ah * a1
+        a2 = ah * a2
+        ai = 1 - ah
+        _tp.R = p1.R * a1 + p2.R * a2 + _tp.R * ai
+        _tp.G = p1.G * a1 + p2.G * a2 + _tp.G * ai
+        _tp.B = p1.B * a1 + p2.B * a2 + _tp.B * ai
+
+        _out:SetPixel(x, y, _tp)
+    end
 end
 
 function DrawOverlay()
