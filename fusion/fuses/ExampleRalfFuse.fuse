@@ -57,7 +57,16 @@ function Create()
         INP_Default = 0.04,
         ICD_Center = 1,
         })			
-    
+      
+    _inStaticWidth = self:AddInput("Static Width", "StaticWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.0025,
+        ICD_Center = 1,
+        })
+
     _inBorderWidth = self:AddInput("Border Width", "BorderWidth", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -67,6 +76,15 @@ function Create()
         ICD_Center = 1,
         })			
     
+    _inBorderSmoothing = self:AddInput("Border Smoothing", "BorderSmoothing", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 1,
+        INP_Default = 0.75,
+        ICD_Center = 1,
+        })	
+        
     _inMinHeight = self:AddInput("Min Height", "MinHeight", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -74,7 +92,7 @@ function Create()
         INP_MaxScale = 0.5,
         INP_Default = 0.0,
         ICD_Center = 1,
-        })	
+        })
     
     _inMaxHeight = self:AddInput("Max Height", "MaxHeight", {
         LINKID_DataType = "Number",
@@ -83,7 +101,7 @@ function Create()
         INP_MaxScale = 0.5,
         INP_Default = 0.4,
         ICD_Center = 1,
-        })	
+        })
     
     InImage = self:AddInput("Input", "Input", {
         LINKID_DataType = "Image",
@@ -104,6 +122,8 @@ function Process(req)
     _debugDetection = _inDetection:GetValue(req).Value
     _Lthreshold = _inLThreshold:GetValue(req).Value
 	_borderw = _inBorderWidth:GetValue(req).Value
+	_borderSmoo = _inBorderSmoothing:GetValue(req).Value
+	_staticw = _inStaticWidth:GetValue(req).Value
 	_fillw = _inWidth:GetValue(req).Value
 	_fillh1 = _inMinHeight:GetValue(req).Value
 	_fillh2 = _inMaxHeight:GetValue(req).Value
@@ -117,6 +137,7 @@ function Process(req)
     _iw1 = _img.Width - 1
     _ih1 = _img.Height - 1
     _borderw = math.floor(_borderw * _iw1)
+    _staticw = math.floor(_staticw * _iw1)
     _fillw = math.floor(_fillw * _iw1)
     _fillh1 = math.min(math.floor(_fillh1 * _ih1), _ih1)
     _fillh2 = math.min(math.floor(_fillh2 * _ih1), _ih1)
@@ -196,6 +217,8 @@ function Method1(Lmin, Lmax, Ldelta)
     local xEnd = cxEnd
     local xStart2, xEnd2
     local rx
+    local s1 = _borderSmoo
+    local s2 = 1 - s1
     for y = _cy + 1, _fillh2 do
         -- use center as a reference
         rx = math.floor((xStart + xEnd) / 2)
@@ -205,8 +228,8 @@ function Method1(Lmin, Lmax, Ldelta)
         xStart2, xEnd2 = FindEdges(rx, y, Lmin, Lmax, Ldelta)
 
         -- average edges with a 3/4 + 1/4 ratio to smooth it _out
-        xStart = math.floor((xStart * 3 + xStart2) / 4)
-        xEnd = math.floor((xEnd * 3 + xEnd2) / 4)
+        xStart = math.floor(xStart * s1 + xStart2 * s2)
+        xEnd = math.floor(xEnd * s1 + xEnd2 * s2)
 
         FillLine(xStart, xEnd, y)
     end
@@ -222,8 +245,8 @@ function Method1(Lmin, Lmax, Ldelta)
         xStart2, xEnd2 = FindEdges(rx, y, Lmin, Lmax, Ldelta)
 
         -- average edges with a 3/4 + 1/4 ratio to smooth it _out
-        xStart = math.floor((xStart * 3 + xStart2) / 4)
-        xEnd = math.floor((xEnd * 3 + xEnd2) / 4)
+        xStart = math.floor(xStart * s1 + xStart2 * s2)
+        xEnd = math.floor(xEnd * s1 + xEnd2 * s2)
 
         FillLine(xStart, xEnd, y)
     end
@@ -281,6 +304,10 @@ function FindEdges(rx, dy, Lmin, Lmax, Ldelta)
 end
 
 function FillLine(xStart, xEnd, dy)
+
+    xStart = xStart - _staticw
+    xEnd = xEnd + _staticw
+
     if _debugDetection == 1 then
         _tp.R = 1
         _tp.G = 0
@@ -306,6 +333,30 @@ function FillLine(xStart, xEnd, dy)
         w1 = xc - x1
         w2 = x2 - xc
 
+        local p1 = Pixel()
+        local p2 = Pixel()
+        _img:GetPixel(x1, dy, p1)
+        _img:GetPixel(x2, dy, p2)
+
+        local a1, a2
+        for x = 0, _borderw - 1 do
+            a1 = Smoothstep(x / _borderw)
+            Merge1(x + x1, dy, a1, p1)
+        end
+
+        local dx = xEnd - xStart
+        for x = 0, dx do
+            a2 = Smoothstep(x / dx)
+            a1 = 1 - a2
+            Merge2(x + xStart, dy, a1, p1, a2, p2)
+        end
+        
+        for x = 0, _borderw - 1 do
+            a2 = 1 - Smoothstep(x / _borderw)
+            Merge1(x + xEnd + 1, dy, a2, p2)
+        end
+
+        --[[ test0
         for x = x1, xc do
             _img:GetPixel(x - w1, dy, _tp)
             _out:SetPixel(x, dy, _tp)
@@ -314,7 +365,27 @@ function FillLine(xStart, xEnd, dy)
             _img:GetPixel(x + w2, dy, _tp)
             _out:SetPixel(x, dy, _tp)
         end
+        ]]
     end
+end
+
+function Merge1(x, y, a, p)
+    _img:GetPixel(x, y, _tp)
+
+    local b = 1 - a
+    _tp.R = p.R * a + _tp.R * b
+    _tp.G = p.G * a + _tp.G * b
+    _tp.B = p.B * a + _tp.B * b
+    
+    _out:SetPixel(x, y, _tp)
+end
+
+function Merge2(x, y, a1, p1, a2, p2)
+    _tp.R = p1.R * a1 + p2.R * a2
+    _tp.G = p1.G * a1 + p2.G * a2
+    _tp.B = p1.B * a1 + p2.B * a2
+
+    _out:SetPixel(x, y, _tp)
 end
 
 function DrawOverlay()
@@ -371,6 +442,12 @@ function DrawOverlay()
         dy = by + math.floor(255 * 1)
         DrawLargePixel(bx + x, dy, _tp)
     end
+end
+
+function Smoothstep(x)
+    -- x is expected in range 0..1
+    -- https://en.wikipedia.org/wiki/Smoothstep
+    return x * x * (3.0 - 2.0 * x)
 end
 
 function DrawLargePixel(x, dy)
