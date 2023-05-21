@@ -104,9 +104,9 @@ function Create()
     _inBorderSmoothing = self:AddInput("Border Smoothing", "BorderSmoothing", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
-        INP_MinScale = 0.01,
+        INP_MinScale = 0.0,
         INP_MaxScale = 1,
-        INP_Default = 0.75,
+        INP_Default = 0.85,
         ICD_Center = 1,
         })
 
@@ -144,6 +144,7 @@ function Process(req)
 
     _imgPxW1 = _img.Width - 1
     _imgPxH1 = _img.Height - 1
+    _borderSmooth = Clamp(_borderSmooth, 0, 1)
     _topBlendingPxH = math.floor(Clamp(_topBlendingPxH, 0, 1) * _imgPxW1)
     _fillBorderPxW = math.floor(Clamp(_fillBorderPxW, 0, 1) * _imgPxW1)
     _fillStaticPxW = math.floor(Clamp(_fillStaticPxW, 0, 1) * _imgPxW1)
@@ -193,8 +194,7 @@ function Method1(lumaMin, lumaMax, lumaDelta)
     local xEnd = cxEnd
     local xStart2, xEnd2
     local rx
-    local s1 = _borderSmooth
-    local s2 = 1 - s1
+    local fracSmooth = 1 - _borderSmooth
     for y = _originPxY + 1, _fillTopPxY do
         -- use originPt as a reference
         rx = math.floor((xStart + xEnd) / 2)
@@ -202,10 +202,12 @@ function Method1(lumaMin, lumaMax, lumaDelta)
         -- scan line and find new edges
         lumaMin, lumaMax, lumaDelta = ScanLine(y)
         xStart2, xEnd2 = FindEdges(rx, y, lumaMin, lumaMax, lumaDelta)
+        local dxStart = xStart2 - xStart
+        local dxEnd = xEnd2 - xEnd
 
-        -- average edges with a 3/4 + 1/4 ratio to smooth it _out
-        xStart = math.floor(xStart * s1 + xStart2 * s2)
-        xEnd = math.floor(xEnd * s1 + xEnd2 * s2)
+        -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
+        xStart = math.floor(xStart + fracSmooth * dxStart)
+        xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
 
         FillLine(xStart, xEnd, y)
     end
@@ -219,10 +221,12 @@ function Method1(lumaMin, lumaMax, lumaDelta)
         -- scan line and find new edges
         lumaMin, lumaMax, lumaDelta = ScanLine(y)
         xStart2, xEnd2 = FindEdges(rx, y, lumaMin, lumaMax, lumaDelta)
+        local dxStart = xStart2 - xStart
+        local dxEnd = xEnd2 - xEnd
 
-        -- average edges with a 3/4 + 1/4 ratio to smooth it _out
-        xStart = math.floor(xStart * s1 + xStart2 * s2)
-        xEnd = math.floor(xEnd * s1 + xEnd2 * s2)
+        -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
+        xStart = math.floor(xStart + fracSmooth * dxStart)
+        xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
 
         FillLine(xStart, xEnd, y)
     end
