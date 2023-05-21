@@ -49,7 +49,7 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inWidth = self:AddInput("Half Width", "Width", {
+    _inWidth = self:AddInput("Scan Width", "Width", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.01,
@@ -103,7 +103,15 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inTopSmoothing = self:AddInput("Top Smoothing", "TopSmoothing", {
+    _inTopPoint = self:AddInput("Top", "Top", { --UI Label, Internal Ref
+        LINKID_DataType = "Point", -- Returns 2 values X and Y
+        INPID_InputControl = "OffsetControl", -- Type of Control
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.5,
+        INP_DefaultY = 0.4,
+        })
+
+    _inTopSmoothing = self:AddInput("Top Blending", "TopSmoothing", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.0,
@@ -138,6 +146,7 @@ function Process(req)
 	_fillh1 = _inMinHeight:GetValue(req).Value
 	_fillh2 = _inMaxHeight:GetValue(req).Value
     local center = _inCenter:GetValue(req)
+    local top = _inTopPoint:GetValue(req)
 
     -- copy input image to _tmp image
     _tmp = _img:Copy()
@@ -157,6 +166,11 @@ function Process(req)
         _fillh1 = _fillh2
         _fillh2 = a
     end
+    _topy = math.floor(Clamp(top.Y, 0, 1) * _ih1)
+    if _topy > _fillh1 and _topy > _fillh2 then
+        _fillh2 = _topy
+    end
+
     _cx = math.floor(Clamp(center.X, 0, 1) * _iw1)
     _cy = math.floor(Clamp(center.Y, 0, 1) * _ih1)
     _cy = Clamp(_cy, _fillh1, _fillh2)
