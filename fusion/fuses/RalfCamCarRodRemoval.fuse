@@ -1,0 +1,470 @@
+FuRegisterClass("RalfCamCarRodRemoval", CT_Tool, {
+    REGS_Name = "Ralf Cam Car Rod Removal",
+    REGS_Category = "Transform",
+    REGS_OpIconString = "E1BC",
+    REGS_OpDescription = "Ralf Cam Car Rod Removal",
+    })
+
+function Create()
+    _inMethod = self:AddInput("Method", "Method", { --UI Label, Internal Ref
+		LINKID_DataType = "Number",
+		INPID_InputControl = "MultiButtonControl",
+		INP_Default = 0.0,
+		{ MBTNC_AddButton = "Bypass", MBTNCD_ButtonWidth = 0.3, },      -- 0
+		{ MBTNC_AddButton = "Flood Fill", MBTNCD_ButtonWidth = 0.3, },  -- 1
+		INP_DoNotifyChanged = true,
+	})
+
+    _inOverlay = self:AddInput("Show Overlay", "ShowOverlay", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Integer = true,
+        INP_Default = 0.0,
+        INP_DoNotifyChanged = true,
+        })
+
+    _inDetection = self:AddInput("Show Detection", "ShowDetection", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Integer = true,
+        INP_Default = 0.0,
+        INP_DoNotifyChanged = true,
+        })
+
+    _inOriginPoint = self:AddInput("Origin Point", "OriginPoint", { --UI Label, Internal Ref
+        LINKID_DataType = "Point", -- Returns 2 values X and Y
+        INPID_InputControl = "OffsetControl", -- Type of Control
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.5,
+        INP_DefaultY = 0.5,
+        })
+
+    _inTopPoint = self:AddInput("Top Point", "TopPoint", { --UI Label, Internal Ref
+        LINKID_DataType = "Point", -- Returns 2 values X and Y
+        INPID_InputControl = "OffsetControl", -- Type of Control
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.5,
+        INP_DefaultY = 0.4,
+        })
+
+    _inTopBlendingH = self:AddInput("Top Blending Height", "TopBlendingHeight", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.02,
+        ICD_Center = 1,
+        })
+    
+    _inLumaThreshold = self:AddInput("Luma Delta", "LumaThreshold", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.05,
+        ICD_Center = 1,
+        })
+
+    _inScanWidth = self:AddInput("Scan Width", "ScanWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.04,
+        ICD_Center = 1,
+        })
+
+    _inFillBottomH = self:AddInput("Bottom Fill Height", "BottomFillHeight", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.5,
+        INP_Default = 0.0,
+        ICD_Center = 1,
+        })
+    
+    _inFillStaticW = self:AddInput("Fill Static Width", "FillStaticWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.0025,
+        ICD_Center = 1,
+        })
+
+    _inFillBorderW = self:AddInput("Fill Blend Width", "FillBorderWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.1,
+        INP_Default = 0.005,
+        ICD_Center = 1,
+        })
+
+    _inBorderSmoothing = self:AddInput("Border Smoothing", "BorderSmoothing", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.01,
+        INP_MaxScale = 1,
+        INP_Default = 0.75,
+        ICD_Center = 1,
+        })
+
+    InImage = self:AddInput("Input", "Input", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+
+    OutImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+end
+ 
+function Process(req)
+    _tp = Pixel()
+    _img = InImage:GetValue(req)
+    _method = _inMethod:GetValue(req).Value
+    _showOverlay = _inOverlay:GetValue(req).Value
+    _showDetection = _inDetection:GetValue(req).Value
+    _lumaThreshold = _inLumaThreshold:GetValue(req).Value
+	_fillBorderPxW = _inFillBorderW:GetValue(req).Value
+	_borderSmooth = _inBorderSmoothing:GetValue(req).Value
+	_topBlendingPxH = _inTopBlendingH:GetValue(req).Value
+	_fillStaticPxW = _inFillStaticW:GetValue(req).Value
+	_fillScanPxW = _inScanWidth:GetValue(req).Value
+	_fillBottomPxY = _inFillBottomH:GetValue(req).Value
+    local originPt = _inOriginPoint:GetValue(req)
+    local topPt = _inTopPoint:GetValue(req)
+
+    -- copy input image to _tmp image
+    _tmp = _img:Copy()
+    -- convert to HSL (R=H, G=L, B=S)
+    _tmp:CSConvert("RGB", "HLS")
+
+    _imgPxW1 = _img.Width - 1
+    _imgPxH1 = _img.Height - 1
+    _topBlendingPxH = math.floor(Clamp(_topBlendingPxH, 0, 1) * _imgPxW1)
+    _fillBorderPxW = math.floor(Clamp(_fillBorderPxW, 0, 1) * _imgPxW1)
+    _fillStaticPxW = math.floor(Clamp(_fillStaticPxW, 0, 1) * _imgPxW1)
+    _fillScanPxW = math.floor(Clamp(_fillScanPxW, 0, 1) * _imgPxW1)
+    _fillBottomPxY = Clamp(math.floor(_fillBottomPxY * _imgPxH1), 0, _imgPxH1)
+    _fillTopPxY = Clamp(math.floor(topPt.Y * _imgPxH1), _fillBottomPxY, _imgPxH1)
+
+    _originPxX = math.floor(Clamp(originPt.X, 0, 1) * _imgPxW1)
+    _originPxY = math.floor(Clamp(originPt.Y, 0, 1) * _imgPxH1)
+    _originPxY = Clamp(_originPxY, _fillBottomPxY, _fillTopPxY)
+    _tmp:GetPixel(_originPxX, _originPxY, _tp)
+    
+    _lumaRef = _tp.G  -- (R=H, G=L, B=S)
+    _scanStartPxX = Clamp(_originPxX - _fillScanPxW, 0, _imgPxW1)
+    _scanEndPxX = Clamp(_originPxX + _fillScanPxW, _scanStartPxX, _imgPxW1)
+    lumaMin, lumaMax, lumaDelta = ScanLine(_originPxY)
+
+    _lumaRef = (_lumaRef - lumaMin) / lumaDelta -- reshape to min/max
+    --print(_method .. " originPt: " .. _originPxX .. " x " .. _originPxY .. " : " .. _lumaRef .. ", min " .. lumaMin .. " max " .. lumaMax)
+
+    _out = _img:Copy()
+
+    if _method == 0 then
+        -- bypass, out is unchanged
+    elseif _method == 1 then
+        Method1(lumaMin, lumaMax, lumaDelta)
+    end
+
+    if _showOverlay == 1 then
+        DrawOverlay()
+    end
+
+    -- output result
+    OutImage:Set(req, _out)
+end
+
+function Clamp(v, min, max)
+    return math.max(min, math.min(max, v))
+end
+
+function Method1(lumaMin, lumaMax, lumaDelta)
+    -- Method 1: flood-fill starting at _originPxX/_originPxY
+    local cxStart, cxEnd = FindEdges(_originPxX, _originPxY, lumaMin, lumaMax, lumaDelta)
+    FillLine(cxStart, cxEnd, _originPxY)
+
+    local xStart = cxStart
+    local xEnd = cxEnd
+    local xStart2, xEnd2
+    local rx
+    local s1 = _borderSmooth
+    local s2 = 1 - s1
+    for y = _originPxY + 1, _fillTopPxY do
+        -- use originPt as a reference
+        rx = math.floor((xStart + xEnd) / 2)
+
+        -- scan line and find new edges
+        lumaMin, lumaMax, lumaDelta = ScanLine(y)
+        xStart2, xEnd2 = FindEdges(rx, y, lumaMin, lumaMax, lumaDelta)
+
+        -- average edges with a 3/4 + 1/4 ratio to smooth it _out
+        xStart = math.floor(xStart * s1 + xStart2 * s2)
+        xEnd = math.floor(xEnd * s1 + xEnd2 * s2)
+
+        FillLine(xStart, xEnd, y)
+    end
+
+    xStart = cxStart
+    xEnd = cxEnd
+    for y = _originPxY - 1, _fillBottomPxY, -1 do
+        -- use originPt as a reference
+        rx = math.floor((xStart + xEnd) / 2)
+
+        -- scan line and find new edges
+        lumaMin, lumaMax, lumaDelta = ScanLine(y)
+        xStart2, xEnd2 = FindEdges(rx, y, lumaMin, lumaMax, lumaDelta)
+
+        -- average edges with a 3/4 + 1/4 ratio to smooth it _out
+        xStart = math.floor(xStart * s1 + xStart2 * s2)
+        xEnd = math.floor(xEnd * s1 + xEnd2 * s2)
+
+        FillLine(xStart, xEnd, y)
+    end
+end
+
+function ScanLine(dy)
+    local Lval, lumaDelta
+    local lumaMax = 0.0
+    local lumaMin = 1.0
+    for x = _scanStartPxX, _scanEndPxX do
+        _img:GetPixel(x, dy, _tp)
+        Lval = _tp.G  -- (R=H, G=L, B=S)
+        if Lval < lumaMin then
+            lumaMin = Lval
+        end
+        if Lval > lumaMax then
+            lumaMax = Lval
+        end
+    end
+    lumaDelta = math.max(0.0001, lumaMax - lumaMin)
+    return lumaMin, lumaMax, lumaDelta
+end
+
+function FindEdges(rx, dy, lumaMin, lumaMax, lumaDelta)
+    _tmp:GetPixel(rx, dy, _tp)
+    local Lval
+    local _lumaRef = _tp.G  -- (R=H, G=L, B=S)
+    _lumaRef = (_lumaRef - lumaMin) / lumaDelta -- reshape to min/max
+
+    local xStart = _scanStartPxX
+    for x = rx - 1, _scanStartPxX, -1 do
+        _tmp:GetPixel(x, dy, _tp)
+        Lval = _tp.G  -- (R=H, G=L, B=S)
+        Lval = (Lval - lumaMin) / lumaDelta -- reshape to min/max
+
+        if math.abs(Lval - _lumaRef) >= _lumaThreshold then
+            xStart = x
+            break
+        end
+    end
+
+    local xEnd = _scanEndPxX
+    for x = rx + 1, _scanEndPxX do
+        _tmp:GetPixel(x, dy, _tp)
+        Lval = _tp.G  -- (R=H, G=L, B=S)
+        Lval = (Lval - lumaMin) / lumaDelta -- reshape to min/max
+
+        if math.abs(Lval - _lumaRef) >= _lumaThreshold then
+            xEnd = x
+            break
+        end
+    end
+
+    return xStart, xEnd
+end
+
+function FillLine(xStart, xEnd, dy)
+    xStart = xStart - _fillStaticPxW
+    xEnd = xEnd + _fillStaticPxW
+
+    if _showDetection == 1 then
+        _tp.R = 1
+        _tp.G = 0
+        _tp.B = 0
+        for x = xStart, xEnd do
+            _out:SetPixel(x, dy, _tp)
+        end
+
+        _tp.R = .7
+        _tp.G = .7
+        _tp.B = 0
+        for x = xStart - _fillBorderPxW, xStart - 1 do
+            _out:SetPixel(x, dy, _tp)
+        end
+        for x = xEnd + 1, xEnd + _fillBorderPxW do
+            _out:SetPixel(x, dy, _tp)
+        end
+    else
+        local x1, x2, xc, w1, w2
+        x1 = xStart - _fillBorderPxW
+        x2 = xEnd + _fillBorderPxW
+        xc = math.floor((x1 + x2) / 2)
+        w1 = xc - x1
+        w2 = x2 - xc
+
+        local p1 = Pixel()
+        local p2 = Pixel()
+        --_img:GetPixel(x1, dy, p1)
+        --_img:GetPixel(x2, dy, p2)
+        ImgAveragePixelY3(x1, dy, p1)
+        ImgAveragePixelY3(x2, dy, p2)
+
+        local ah = 1.0
+        if _topBlendingPxH > 0 then
+            local ys = _fillTopPxY - _topBlendingPxH
+            if dy > ys then
+                ah = 1 - Smoothstep((dy - ys) / _topBlendingPxH)
+            end
+        end
+
+        local a1, a2
+        for x = 0, _fillBorderPxW - 1 do
+            a1 = Smoothstep(x / _fillBorderPxW)
+            Merge1(x + x1, dy, ah * a1, p1)
+        end
+
+        local dx = xEnd - xStart
+        for x = 0, dx do
+            a2 = x / dx
+            a1 = 1 - a2
+            Merge2(x + xStart, dy, ah, a1, p1, a2, p2)
+        end
+        
+        for x = 0, _fillBorderPxW - 1 do
+            a2 = 1 - Smoothstep(x / _fillBorderPxW)
+            Merge1(x + xEnd + 1, dy, ah * a2, p2)
+        end
+    end
+end
+
+function ImgAveragePixelY3(x, y, p)
+    _img:GetPixel(x, y, p)
+    if y > 0 and y < _imgPxH1 then
+    -- Percentage: Y 0 = 50%, Y-1 = 25%, Y+1 = 25%
+    _img:GetPixel(x, y-1, _tp)
+        p.R = p.R / 2 + _tp.R / 4
+        p.G = p.G / 2 + _tp.G / 4
+        p.B = p.B / 2 + _tp.B / 4
+
+        _img:GetPixel(x, y+1, _tp)
+        p.R = p.R     + _tp.R / 4
+        p.G = p.G     + _tp.G / 4
+        p.B = p.B     + _tp.B / 4
+    end
+end
+
+function Merge1(x, y, a, p)
+    _img:GetPixel(x, y, _tp)
+
+    local b = 1 - a
+    _tp.R = p.R * a + _tp.R * b
+    _tp.G = p.G * a + _tp.G * b
+    _tp.B = p.B * a + _tp.B * b
+    
+    _out:SetPixel(x, y, _tp)
+end
+
+function Merge2(x, y, ah, a1, p1, a2, p2)
+    if ah >= 1.0 then
+        _tp.R = p1.R * a1 + p2.R * a2
+        _tp.G = p1.G * a1 + p2.G * a2
+        _tp.B = p1.B * a1 + p2.B * a2
+
+        _out:SetPixel(x, y, _tp)
+    else
+        _img:GetPixel(x, y, _tp)
+
+        a1 = ah * a1
+        a2 = ah * a2
+        ai = 1 - ah
+        _tp.R = p1.R * a1 + p2.R * a2 + _tp.R * ai
+        _tp.G = p1.G * a1 + p2.G * a2 + _tp.G * ai
+        _tp.B = p1.B * a1 + p2.B * a2 + _tp.B * ai
+
+        _out:SetPixel(x, y, _tp)
+    end
+end
+
+function DrawOverlay()
+    -- Overlay data from originPt Y line
+    local lumaMin, lumaMax, lumaDelta = ScanLine(_originPxY)
+
+    _tmp:GetPixel(_originPxX, _originPxY, _tp)
+    local _lumaRef = _tp.G  -- (R=H, G=L, B=S)
+    _lumaRef = (_lumaRef - lumaMin) / lumaDelta -- reshape to min/max
+
+    local lsx = -1
+    local iw2 = math.floor(_imgPxW1 / 2)
+    local bx = math.floor(_imgPxW1 / 4)
+    local by = math.floor(_imgPxH1 / 2)
+    local ldy = by
+    local sx
+    for x = 0, iw2 do
+        sx = math.floor(x / iw2 * 2 * _fillScanPxW + _originPxX - _fillScanPxW)
+        if sx ~= lsx then
+            _tmp:GetPixel(sx, _originPxY, _tp)
+            lsx = sx
+            Lval = _tp.G  -- (R=H, G=L, B=S)
+            Lval = (Lval - lumaMin) / lumaDelta -- reshape to min/max
+            if math.abs(Lval - _lumaRef) < _lumaThreshold then
+                _tp.R = 1
+                _tp.G = 0
+            else
+                _tp.R = 0
+                _tp.G = 1
+            end
+            _tp.B = 0
+            dy = by + math.floor(255 * Lval)
+            dy = math.min(_imgPxH1, dy)
+        end
+        if ldy == dy then
+            DrawLargePixel(bx + x, dy, _tp)
+        else
+            y1 = math.min(dy, ldy)
+            y2 = math.max(dy, ldy)
+            for y = y1, y2 do
+                DrawLargePixel(bx + x, y, _tp)
+            end
+            ldy = dy
+        end
+    end
+    for x = 0, iw2 do
+        _tp.R = 0
+        _tp.G = 0
+        _tp.B = 1
+        dy = by + math.floor(255 * 0)
+        DrawLargePixel(bx + x, dy, _tp)
+        dy = by + math.floor(255 * (_lumaRef - _lumaThreshold))
+        DrawLargePixel(bx + x, dy, _tp)
+        dy = by + math.floor(255 * 1)
+        DrawLargePixel(bx + x, dy, _tp)
+    end
+end
+
+function Smoothstep(x)
+    -- x is expected in range 0..1
+    -- https://en.wikipedia.org/wiki/Smoothstep
+    return x * x * (3.0 - 2.0 * x)
+end
+
+function DrawLargePixel(x, dy)
+    _out:SetPixel(x, dy, _tp)
+    _out:SetPixel(x+1, dy, _tp)
+    _out:SetPixel(x+1, dy-1, _tp)
+    _out:SetPixel(x+1, dy+1, _tp)
+    _out:SetPixel(x+2, dy, _tp)
+end
+
+function NotifyChanged(inp, param, time)
+
+    if inp == _inOriginPoint then
+        -- do something?
+    end
+
+end
