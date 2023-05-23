@@ -12,6 +12,7 @@ function Create()
 		INP_Default = 0.0,
 		{ MBTNC_AddButton = "Bypass", MBTNCD_ButtonWidth = 0.3, },      -- 0
 		{ MBTNC_AddButton = "Flood Fill", MBTNCD_ButtonWidth = 0.3, },  -- 1
+		{ MBTNC_AddButton = "Window Avg", MBTNCD_ButtonWidth = 0.3, },  -- 2
 		INP_DoNotifyChanged = true,
 	})
 
@@ -163,7 +164,7 @@ function Process(req)
 
     _overlayPxX = math.floor(Clamp(overlayPt.X, 0, 1) * _imgPxW1)
     _overlayPxY = math.floor(Clamp(overlayPt.Y, 0, 1) * _imgPxH1)
-    
+
     _originPxX = math.floor(Clamp(originPt.X, 0, 1) * _imgPxW1)
     _originPxY = math.floor(Clamp(originPt.Y, 0, 1) * _imgPxH1)
     _originPxY = Clamp(_originPxY, _fillBottomPxY, _fillTopPxY)
@@ -183,6 +184,8 @@ function Process(req)
         -- bypass, out is unchanged
     elseif _method == 1 then
         Method1(lumaMin, lumaMax, lumaDelta)
+    elseif _method == 2 then
+        Method2(lumaMin, lumaMax, lumaDelta)
     end
 
     if _showOverlay == 1 then
@@ -205,15 +208,15 @@ function Method1(lumaMin, lumaMax, lumaDelta)
     local xStart = cxStart
     local xEnd = cxEnd
     local xStart2, xEnd2
-    local rx
+    local xRef
     local fracSmooth = 1 - _borderSmooth
     for y = _originPxY + 1, _fillTopPxY do
         -- use originPt as a reference
-        rx = math.floor((xStart + xEnd) / 2)
+        xRef = math.floor((xStart + xEnd) / 2)
 
         -- scan line and find new edges
         lumaMin, lumaMax, lumaDelta = ScanLine(y)
-        xStart2, xEnd2 = FindEdges(rx, y, lumaMin, lumaMax, lumaDelta)
+        xStart2, xEnd2 = FindEdges(xRef, y, lumaMin, lumaMax, lumaDelta)
         local dxStart = xStart2 - xStart
         local dxEnd = xEnd2 - xEnd
 
@@ -228,17 +231,94 @@ function Method1(lumaMin, lumaMax, lumaDelta)
     xEnd = cxEnd
     for y = _originPxY - 1, _fillBottomPxY, -1 do
         -- use originPt as a reference
-        rx = math.floor((xStart + xEnd) / 2)
+        xRef = math.floor((xStart + xEnd) / 2)
 
         -- scan line and find new edges
         lumaMin, lumaMax, lumaDelta = ScanLine(y)
-        xStart2, xEnd2 = FindEdges(rx, y, lumaMin, lumaMax, lumaDelta)
+        xStart2, xEnd2 = FindEdges(xRef, y, lumaMin, lumaMax, lumaDelta)
         local dxStart = xStart2 - xStart
         local dxEnd = xEnd2 - xEnd
 
         -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         xStart = math.floor(xStart + fracSmooth * dxStart)
         xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+
+        FillLine(xStart, xEnd, y)
+    end
+end
+
+
+function Method2(lumaMin, lumaMax, lumaDelta)
+    -- Method 2: scan all lines starting at _originPxX/_originPxY, then fill
+    local cxStart, cxEnd = FindEdges(_originPxX, _originPxY, lumaMin, lumaMax, lumaDelta)
+    FillLine(cxStart, cxEnd, _originPxY)
+
+    local xStart = cxStart
+    local xEnd   = cxEnd
+
+    local xs = { xStart, xStart, xStart, xStart }
+    local xe = { xEnd, xEnd, xEnd, xEnd }
+    local xk = 1
+
+    local xStart2, xEnd2
+    local xRef
+    local fracSmooth = 1 - _borderSmooth
+    for y = _originPxY + 1, _fillTopPxY do
+        -- use originPt as a reference
+        xRef = math.floor((xStart + xEnd) / 2)
+
+        -- scan line and find new edges
+        lumaMin, lumaMax, lumaDelta = ScanLine(y)
+        xStart2, xEnd2 = FindEdges(xRef, y, lumaMin, lumaMax, lumaDelta)
+
+        -- local dxStart = xStart2 - xStart
+        -- local dxEnd = xEnd2 - xEnd
+
+        -- -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
+        -- xStart = math.floor(xStart + fracSmooth * dxStart)
+        -- xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+
+        xs[xk] = xStart2
+        xe[xk] = xEnd2
+        xk = xk + 1
+        if xk > 4 then
+            xk = 1
+        end
+        xStart = math.floor( (xs[1] + xs[2] + xs[3] + xs[4]) / 4)
+        xEnd   = math.floor( (xe[1] + xe[2] + xe[3] + xe[4]) / 4)
+
+        FillLine(xStart, xEnd, y)
+    end
+
+    xStart = cxStart
+    xEnd = cxEnd
+    xs = { xStart, xStart, xStart, xStart }
+    xe = { xEnd, xEnd, xEnd, xEnd }
+    xk = 1
+
+    for y = _originPxY - 1, _fillBottomPxY, -1 do
+        -- use originPt as a reference
+        xRef = math.floor((xStart + xEnd) / 2)
+
+        -- scan line and find new edges
+        lumaMin, lumaMax, lumaDelta = ScanLine(y)
+        xStart2, xEnd2 = FindEdges(xRef, y, lumaMin, lumaMax, lumaDelta)
+
+        -- local dxStart = xStart2 - xStart
+        -- local dxEnd = xEnd2 - xEnd
+
+        -- -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
+        -- xStart = math.floor(xStart + fracSmooth * dxStart)
+        -- xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+
+        xs[xk] = xStart2
+        xe[xk] = xEnd2
+        xk = xk + 1
+        if xk > 4 then
+            xk = 1
+        end
+        xStart = math.floor( (xs[1] + xs[2] + xs[3] + xs[4]) / 4)
+        xEnd   = math.floor( (xe[1] + xe[2] + xe[3] + xe[4]) / 4)
 
         FillLine(xStart, xEnd, y)
     end
@@ -262,31 +342,32 @@ function ScanLine(dy)
     return lumaMin, lumaMax, lumaDelta
 end
 
-function FindEdges(rx, dy, lumaMin, lumaMax, lumaDelta)
-    _tmp:GetPixel(rx, dy, _tp)
+function FindEdges(xRef, dy, lumaMin, lumaMax, lumaDelta)
+    _tmp:GetPixel(xRef, dy, _tp)
     local lumaVal
     local lumaRef = _tp.G  -- (R=H, G=L, B=S)
     lumaRef = (lumaRef - lumaMin) / lumaDelta -- reshape to min/max
+    lumaRef = lumaRef - _lumaThreshold
 
     local xStart = _scanStartPxX
-    for x = rx - 1, _scanStartPxX, -1 do
+    for x = xRef - 1, _scanStartPxX, -1 do
         _tmp:GetPixel(x, dy, _tp)
         lumaVal = _tp.G  -- (R=H, G=L, B=S)
         lumaVal = (lumaVal - lumaMin) / lumaDelta -- reshape to min/max
 
-        if math.abs(lumaVal - lumaRef) >= _lumaThreshold then
+        if lumaVal < lumaRef then
             xStart = x
             break
         end
     end
 
     local xEnd = _scanEndPxX
-    for x = rx + 1, _scanEndPxX do
+    for x = xRef + 1, _scanEndPxX do
         _tmp:GetPixel(x, dy, _tp)
         lumaVal = _tp.G  -- (R=H, G=L, B=S)
         lumaVal = (lumaVal - lumaMin) / lumaDelta -- reshape to min/max
 
-        if math.abs(lumaVal - lumaRef) >= _lumaThreshold then
+        if lumaVal < lumaRef then
             xEnd = x
             break
         end
@@ -422,7 +503,6 @@ function DrawOverlay()
     _tmp:GetPixel(ox, oy, _tp)
     local lumaRef = _tp.G  -- (R=H, G=L, B=S)
     lumaRef = (lumaRef - lumaMin) / lumaDelta -- reshape to min/max
-
 
     local lsx = -1
     local iw2 = math.floor(_imgPxW1 / 2)
