@@ -254,71 +254,49 @@ function Method2(lumaMin, lumaMax, lumaDelta)
     FillLine(cxStart, cxEnd, _originPxY)
 
     local xStart = cxStart
-    local xEnd   = cxEnd
-
-    local xs = { xStart, xStart, xStart, xStart }
-    local xe = { xEnd, xEnd, xEnd, xEnd }
-    local xk = 1
-
+    local xEnd = cxEnd
     local xStart2, xEnd2
-    local xRef
+    local dxStart, dxEnd
     local fracSmooth = 1 - _borderSmooth
+    local iw1 = _imgPxW1
+    local xRef = math.floor((xStart + xEnd) / 2)
     for y = _originPxY + 1, _fillTopPxY do
         -- use originPt as a reference
-        xRef = math.floor((xStart + xEnd) / 2)
 
         -- scan line and find new edges
         lumaMin, lumaMax, lumaDelta = ScanLine(y)
         xStart2, xEnd2 = FindEdges(xRef, y, lumaMin, lumaMax, lumaDelta)
+        dxStart = xStart2 - xStart
+        dxEnd = xEnd2 - xEnd
 
-        -- local dxStart = xStart2 - xStart
-        -- local dxEnd = xEnd2 - xEnd
+        -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
+        xStart = Clamp(math.floor(xStart + fracSmooth * dxStart), 0, iw1)
+        xEnd   = Clamp(math.floor(xEnd   + fracSmooth * dxEnd), 0, iw1)
 
-        -- -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
-        -- xStart = math.floor(xStart + fracSmooth * dxStart)
-        -- xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
-
-        xs[xk] = xStart2
-        xe[xk] = xEnd2
-        xk = xk + 1
-        if xk > 4 then
-            xk = 1
-        end
-        xStart = math.floor( (xs[1] + xs[2] + xs[3] + xs[4]) / 4)
-        xEnd   = math.floor( (xe[1] + xe[2] + xe[3] + xe[4]) / 4)
+        dxRef = math.floor((xStart + xEnd) / 2) - xRef
+        xRef = Clamp(math.floor(xRef + fracSmooth * dxRef), 0, iw1)
 
         FillLine(xStart, xEnd, y)
     end
 
     xStart = cxStart
     xEnd = cxEnd
-    xs = { xStart, xStart, xStart, xStart }
-    xe = { xEnd, xEnd, xEnd, xEnd }
-    xk = 1
-
+    xRef = math.floor((xStart + xEnd) / 2)
     for y = _originPxY - 1, _fillBottomPxY, -1 do
         -- use originPt as a reference
-        xRef = math.floor((xStart + xEnd) / 2)
 
         -- scan line and find new edges
         lumaMin, lumaMax, lumaDelta = ScanLine(y)
         xStart2, xEnd2 = FindEdges(xRef, y, lumaMin, lumaMax, lumaDelta)
+        dxStart = xStart2 - xStart
+        dxEnd = xEnd2 - xEnd
 
-        -- local dxStart = xStart2 - xStart
-        -- local dxEnd = xEnd2 - xEnd
+        -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
+        xStart = Clamp(math.floor(xStart + fracSmooth * dxStart), 0, iw1)
+        xEnd   = Clamp(math.floor(xEnd   + fracSmooth * dxEnd), 0, iw1)
 
-        -- -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
-        -- xStart = math.floor(xStart + fracSmooth * dxStart)
-        -- xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
-
-        xs[xk] = xStart2
-        xe[xk] = xEnd2
-        xk = xk + 1
-        if xk > 4 then
-            xk = 1
-        end
-        xStart = math.floor( (xs[1] + xs[2] + xs[3] + xs[4]) / 4)
-        xEnd   = math.floor( (xe[1] + xe[2] + xe[3] + xe[4]) / 4)
+        dxRef = math.floor((xStart + xEnd) / 2) - xRef
+        xRef = Clamp(math.floor(xRef + fracSmooth * dxRef), 0, iw1)
 
         FillLine(xStart, xEnd, y)
     end
