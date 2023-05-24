@@ -277,6 +277,7 @@ function Method2(lumaMin, lumaMax, lumaDelta)
         xRef = Clamp(math.floor(xRef + fracSmooth * dxRef), 0, iw1)
 
         FillLine(xStart, xEnd, y)
+        -- print("y, " .. y .. ", xRef," .. xRef .. ", xs, " .. xStart .. ", xe, " .. xEnd)
     end
 
     xStart = cxStart
@@ -299,6 +300,7 @@ function Method2(lumaMin, lumaMax, lumaDelta)
         xRef = Clamp(math.floor(xRef + fracSmooth * dxRef), 0, iw1)
 
         FillLine(xStart, xEnd, y)
+        -- print("y, " .. y .. ", xRef," .. xRef .. ", xs, " .. xStart .. ", xe, " .. xEnd)
     end
 end
 
@@ -419,7 +421,7 @@ function FillLine(xStart, xEnd, dy)
         end
 
         local a1, a2
-        for x = 0, fillBorderPxW - 1 do
+        for x = 0, fillBorderPxW do
             a1 = Smoothstep(x / fillBorderPxW)
             Merge1(x + x1, dy, ah * a1, p1)
         end
@@ -430,8 +432,8 @@ function FillLine(xStart, xEnd, dy)
             a1 = 1 - a2
             Merge2(x + xStart, dy, ah, a1, p1, a2, p2)
         end
-        
-        for x = 0, fillBorderPxW - 1 do
+
+        for x = 0, fillBorderPxW do
             a2 = 1 - Smoothstep(x / fillBorderPxW)
             Merge1(x + xEnd + 1, dy, ah * a2, p2)
         end
