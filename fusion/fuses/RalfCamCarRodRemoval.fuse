@@ -155,7 +155,7 @@ function Process(req)
     _imgPxW1 = _img.Width - 1
     _imgPxH1 = _img.Height - 1
     _borderSmooth = Clamp(_borderSmooth, 0, 1)
-    _topBlendingPxH = math.floor(Clamp(_topBlendingPxH, 0, 1) * _imgPxW1)
+    _topBlendingPxH = math.floor(Clamp(_topBlendingPxH, 0, 1) * _imgPxH1)
     _fillBorderPxW = math.floor(Clamp(_fillBorderPxW, 0, 1) * _imgPxW1)
     _fillStaticPxW = math.floor(Clamp(_fillStaticPxW, 0, 1) * _imgPxW1)
     _fillScanPxW = math.floor(Clamp(_fillScanPxW, 0, 1) * _imgPxW1)
@@ -355,13 +355,35 @@ function FindEdges(xRef, dy, lumaMin, lumaMax, lumaDelta)
 end
 
 function FillLine(xStart, xEnd, dy)
-    xStart = xStart - _fillStaticPxW
-    xEnd = xEnd + _fillStaticPxW
+    local fillTopPxY = _fillTopPxY
+    local fillStaticPxW = _fillStaticPxW
+    local fillBorderPxW = _fillBorderPxW
+    local topBlendingPxH = _topBlendingPxH
+
+    xStart = xStart - fillStaticPxW
+    xEnd = xEnd + fillStaticPxW
+
+    if topBlendingPxH > 0 then
+        local ys = fillTopPxY - topBlendingPxH
+        if dy > ys then
+            local py = Smoothstep((dy - ys) / topBlendingPxH)
+            fillBorderPxW = fillBorderPxW * ((1 - py) * 0.9 + 0.1)
+        end
+    end
+
 
     if _showDetection == 1 then
         _tp.R = 1
         _tp.G = 0
         _tp.B = 0
+
+        if topBlendingPxH > 0 then
+            local ys = fillTopPxY - topBlendingPxH
+            if dy == ys then
+                _tp.R = 0
+            end
+        end
+
         for x = xStart, xEnd do
             _out:SetPixel(x, dy, _tp)
         end
@@ -369,38 +391,36 @@ function FillLine(xStart, xEnd, dy)
         _tp.R = .7
         _tp.G = .7
         _tp.B = 0
-        for x = xStart - _fillBorderPxW, xStart - 1 do
+        for x = xStart - fillBorderPxW, xStart - 1 do
             _out:SetPixel(x, dy, _tp)
         end
-        for x = xEnd + 1, xEnd + _fillBorderPxW do
+        for x = xEnd + 1, xEnd + fillBorderPxW do
             _out:SetPixel(x, dy, _tp)
         end
     else
         local x1, x2, xc, w1, w2
-        x1 = xStart - _fillBorderPxW
-        x2 = xEnd + _fillBorderPxW
+        x1 = xStart - fillBorderPxW
+        x2 = xEnd + fillBorderPxW
         xc = math.floor((x1 + x2) / 2)
         w1 = xc - x1
         w2 = x2 - xc
 
         local p1 = Pixel()
         local p2 = Pixel()
-        --_img:GetPixel(x1, dy, p1)
-        --_img:GetPixel(x2, dy, p2)
         ImgAveragePixelY3(x1, dy, p1)
         ImgAveragePixelY3(x2, dy, p2)
 
         local ah = 1.0
-        if _topBlendingPxH > 0 then
-            local ys = _fillTopPxY - _topBlendingPxH
+        if topBlendingPxH > 0 then
+            local ys = fillTopPxY - topBlendingPxH
             if dy > ys then
-                ah = 1 - Smoothstep((dy - ys) / _topBlendingPxH)
+                ah = 1 - Smoothstep((dy - ys) / topBlendingPxH)
             end
         end
 
         local a1, a2
-        for x = 0, _fillBorderPxW - 1 do
-            a1 = Smoothstep(x / _fillBorderPxW)
+        for x = 0, fillBorderPxW - 1 do
+            a1 = Smoothstep(x / fillBorderPxW)
             Merge1(x + x1, dy, ah * a1, p1)
         end
 
@@ -411,8 +431,8 @@ function FillLine(xStart, xEnd, dy)
             Merge2(x + xStart, dy, ah, a1, p1, a2, p2)
         end
         
-        for x = 0, _fillBorderPxW - 1 do
-            a2 = 1 - Smoothstep(x / _fillBorderPxW)
+        for x = 0, fillBorderPxW - 1 do
+            a2 = 1 - Smoothstep(x / fillBorderPxW)
             Merge1(x + xEnd + 1, dy, ah * a2, p2)
         end
     end
