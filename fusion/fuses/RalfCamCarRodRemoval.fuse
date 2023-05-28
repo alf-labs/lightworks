@@ -14,6 +14,7 @@ function Create()
 		{ MBTNC_AddButton = "Flood Fill", MBTNCD_ButtonWidth = 0.3, },  -- 1
 		{ MBTNC_AddButton = "Method 2", MBTNCD_ButtonWidth = 0.3, },  -- 2
 		{ MBTNC_AddButton = "Method 3", MBTNCD_ButtonWidth = 0.3, },  -- 3
+		{ MBTNC_AddButton = "Method 4", MBTNCD_ButtonWidth = 0.3, },  -- 4
 		INP_DoNotifyChanged = true,
 	})
 
@@ -96,6 +97,15 @@ function Create()
         ICD_Center = 1,
         })
 
+    _inCenterSmoothing = self:AddInput("Center Smoothing", "CenterSmoothing", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1,
+        INP_Default = 0.3,
+        ICD_Center = 1,
+        })
+
     _inDetection = self:AddInput("Show Detection", "ShowDetection", {
         LINKID_DataType = "Number",
         INPID_InputControl = "CheckboxControl",
@@ -140,6 +150,7 @@ function Process(req)
     _lumaThreshold = _inLumaThreshold:GetValue(req).Value
 	_fillBorderPxW = _inFillBorderW:GetValue(req).Value
 	_borderSmooth = _inBorderSmoothing:GetValue(req).Value
+	_centerSmooth = _inCenterSmoothing:GetValue(req).Value
 	_topBlendingPxH = _inTopBlendingH:GetValue(req).Value
 	_fillStaticPxW = _inFillStaticW:GetValue(req).Value
 	_fillScanPxW = _inScanWidth:GetValue(req).Value
@@ -156,6 +167,7 @@ function Process(req)
     _imgPxW1 = _img.Width - 1
     _imgPxH1 = _img.Height - 1
     _borderSmooth = Clamp(_borderSmooth, 0, 1)
+    _centerSmooth = Clamp(_centerSmooth, 0, 1)
     _topBlendingPxH = math.floor(Clamp(_topBlendingPxH, 0, 1) * _imgPxH1)
     _fillBorderPxW = math.floor(Clamp(_fillBorderPxW, 0, 1) * _imgPxW1)
     _fillStaticPxW = math.floor(Clamp(_fillStaticPxW, 0, 1) * _imgPxW1)
@@ -189,6 +201,8 @@ function Process(req)
         Method2(lumaMin, lumaMax, lumaDelta)
     elseif _method == 3 then
         Method3(lumaMin, lumaMax, lumaDelta)
+    elseif _method == 4 then
+        Method4(lumaMin, lumaMax, lumaDelta)
     end
 
     if _showOverlay == 1 then
@@ -225,7 +239,7 @@ function Method1(lumaMin, lumaMax, lumaDelta)
 
         -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         xStart = math.floor(xStart + fracSmooth * dxStart)
-        xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+        xEnd   = math.ceil (xEnd   + fracSmooth * dxEnd)
 
         FillLine(xStart, xEnd, y)
     end
@@ -244,7 +258,7 @@ function Method1(lumaMin, lumaMax, lumaDelta)
 
         -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         xStart = math.floor(xStart + fracSmooth * dxStart)
-        xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+        xEnd   = math.ceil (xEnd   + fracSmooth * dxEnd)
 
         FillLine(xStart, xEnd, y)
     end
@@ -273,7 +287,7 @@ function Method2(lumaMin, lumaMax, lumaDelta)
 
         -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         xStart = Clamp(math.floor(xStart + fracSmooth * dxStart), 0, iw1)
-        xEnd   = Clamp(math.floor(xEnd   + fracSmooth * dxEnd), 0, iw1)
+        xEnd   = Clamp(math.ceil (xEnd   + fracSmooth * dxEnd), 0, iw1)
 
         dxRef = math.floor((xStart + xEnd) / 2) - xRef
         xRef = Clamp(math.floor(xRef + fracSmooth * dxRef), 0, iw1)
@@ -296,7 +310,7 @@ function Method2(lumaMin, lumaMax, lumaDelta)
 
         -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         xStart = Clamp(math.floor(xStart + fracSmooth * dxStart), 0, iw1)
-        xEnd   = Clamp(math.floor(xEnd   + fracSmooth * dxEnd), 0, iw1)
+        xEnd   = Clamp(math.ceil (xEnd   + fracSmooth * dxEnd), 0, iw1)
 
         dxRef = math.floor((xStart + xEnd) / 2) - xRef
         xRef = Clamp(math.floor(xRef + fracSmooth * dxRef), 0, iw1)
@@ -354,7 +368,7 @@ function Method3(lumaMin, lumaMax, lumaDelta)
 
         -- -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         -- xStart = math.floor(xStart + fracSmooth * dxStart)
-        -- xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+        -- xEnd   = math.ceil (xEnd   + fracSmooth * dxEnd)
 
         -- FillLine(xStart, xEnd, y)
     end
@@ -389,7 +403,7 @@ function Method3(lumaMin, lumaMax, lumaDelta)
 
         -- -- "border smoothing" only accepts a fraction of dx to move xStart/xEnd
         -- xStart = math.floor(xStart + fracSmooth * dxStart)
-        -- xEnd   = math.floor(xEnd   + fracSmooth * dxEnd)
+        -- xEnd   = math.ceil (xEnd   + fracSmooth * dxEnd)
 
         -- FillLine(xStart, xEnd, y)
     end
@@ -401,7 +415,7 @@ function Method3(lumaMin, lumaMax, lumaDelta)
         local w = yw[y]
         if xc ~= nil and w ~= nil then
             local xs = math.floor(xc - w / 2)
-            local xe = math.floor(xc + w / 2)
+            local xe = math.ceil (xc + w / 2)
             FillLine(xc, xe, y)
         end
         if xc == nil then
@@ -448,6 +462,107 @@ function Interpolate(arr, ymin, ymax)
         local vfirst = arr[yfirst]
         for y = ymin, yfirst - 1 do
             arr[y] = vfirst
+        end
+    end
+end
+
+function Method4(lumaMin, lumaMax, lumaDelta)
+    -- Method 4: A merge between method 2 (1-pass scan) using center/width from method 3.
+    local cxStart, cxEnd = FindEdges(_originPxX, _originPxY, lumaMin, lumaMax, lumaDelta)
+    local cxMid = (cxStart + cxEnd) / 2
+    local cWidth = cxEnd - cxStart
+
+    FillLine(cxStart, cxEnd, _originPxY)
+
+    local wref = cWidth
+    local wgrowth = 0.0532          -- pixel per Y line (shrink towards top)
+    local wThresholdMax = 1 + _centerSmooth         -- +30%
+    local wThresholdMin = 1 - (_centerSmooth / 2)   -- -15%
+    local xRefMoveThreshold = 1 - _borderSmooth     -- +/-10% allowed center movement
+
+    -- fill towards top
+    local xMid = cxMid
+    local lastY = _originPxY
+    local lastStart = cxStart
+    local lastEnd = cxEnd
+    for y = _originPxY + 1, _fillTopPxY do
+        -- scan line and find new edges
+        lumaMin, lumaMax, lumaDelta = ScanLine(y)
+        local xStart, xEnd = FindEdges(xMid, y, lumaMin, lumaMax, lumaDelta)
+        local newWidth = xEnd - xStart
+
+        if newWidth >= wref * wThresholdMin and newWidth <= wref * wThresholdMax then
+            local newXMid = (xStart + xEnd) / 2
+            local deltaXMid = math.abs(newXMid - xMid)
+            if deltaXMid < wref * xRefMoveThreshold then
+                if lastY == y - 1 then
+                    FillLine(xStart, xEnd, y)
+                else
+                    FillLinesInterpolate(lastStart, lastEnd, lastY, xStart, xEnd, y)
+                end
+                lastY = y
+                lastStart = xStart
+                lastEnd = xEnd
+                xMid = newXMid
+            end
+        end
+
+        wref = wref - wgrowth
+    end
+    if lastY < _fillTopPxY and lastY > _originPxY then
+        -- copy up to the top
+        local lastMid = (lastStart + lastEnd) / 2
+        local newMid = cxMid + (_fillTopPxY - lastY) * (lastMid - cxMid) / (lastY - _originPxY)
+        local lastWidth = lastEnd - lastStart
+        local newStart = math.floor(newMid - lastWidth / 2)
+        local newEnd   = math.ceil (newMid + lastWidth / 2)
+        FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, _fillTopPxY)
+    else
+        for y = lastY + 1, _fillTopPxY do
+            FillLine(lastStart, lastEnd, y)
+        end
+    end
+
+    -- fill towards bottom
+    xMid = cxMid
+    lastY = _originPxY
+    lastStart = cxStart
+    lastEnd = cxEnd
+    for y = _originPxY - 1, _fillBottomPxY, -1 do
+        -- scan line and find new edges
+        lumaMin, lumaMax, lumaDelta = ScanLine(y)
+        local xStart, xEnd = FindEdges(xMid, y, lumaMin, lumaMax, lumaDelta)
+        local newWidth = xEnd - xStart
+
+        if newWidth >= wref * wThresholdMin and newWidth <= wref * wThresholdMax then
+            local newXMid = (xStart + xEnd) / 2
+            local deltaXMid = math.abs(newXMid - xMid)
+            if deltaXMid < wref * xRefMoveThreshold then
+                xMid = newXMid
+                if lastY == y + 1 then
+                    FillLine(xStart, xEnd, y)
+                else
+                    FillLinesInterpolate(lastStart, lastEnd, lastY, xStart, xEnd, y)
+                end
+                lastY = y
+                lastStart = xStart
+                lastEnd = xEnd
+            end
+        end
+
+        wref = wref + wgrowth
+    end
+    if lastY > _fillBottomPxY and lastY < _originPxY then
+        -- copy down to the bottom
+        local lastMid = (lastStart + lastEnd) / 2
+        local lastWidth = lastEnd - lastStart
+        local newMid = cxMid + (lastY - _fillBottomPxY) * (lastMid - cxMid) / (_originPxY - lastY)
+        local newStart = math.floor(newMid - lastWidth / 2)
+        local newEnd   = math.ceil (newMid + lastWidth / 2)
+        FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, _fillBottomPxY)
+    else
+        for y = lastY - 1, _fillBottomPxY, -1 do
+            FillLine(lastStart, lastEnd, y)
         end
     end
 end
@@ -517,7 +632,7 @@ function FillLine(xStart, xEnd, dy)
         local ys = fillTopPxY - topBlendingPxH
         if dy > ys then
             local py = Smoothstep((dy - ys) / topBlendingPxH)
-            fillBorderPxW = fillBorderPxW * ((1 - py) * 0.9 + 0.1)
+            fillBorderPxW = fillBorderPxW * ((1 - py) * 0.6 + 0.4)
         end
     end
 
@@ -534,8 +649,11 @@ function FillLine(xStart, xEnd, dy)
             end
         end
 
+        local xMid = math.floor((xEnd + xStart) / 2)
         for x = xStart, xEnd do
-            _out:SetPixel(x, dy, _tp)
+            if x ~= xMid then
+                _out:SetPixel(x, dy, _tp)
+            end
         end
 
         _tp.R = .7
@@ -585,6 +703,28 @@ function FillLine(xStart, xEnd, dy)
             a2 = 1 - Smoothstep(x / fillBorderPxW)
             Merge1(x + xEnd + 1, dy, ah * a2, p2)
         end
+    end
+end
+
+function FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, newY)
+    -- fill all lines from lastY up to newY using interpolation.
+    -- lastY has already been filed and is not filed here.
+    local dy = newY - lastY
+    local dy_abs = math.abs(dy)
+    if dy_abs <= 1 then
+        return
+    end
+    local ydir = 1
+    if dy < 0 then
+        ydir = -1
+    end
+    local dxs = (newStart - lastStart) / dy_abs
+    local dxe = (newEnd   - lastEnd  ) / dy_abs
+    for j = 1, dy_abs do
+        local y = lastY + ydir * j
+        local xStart = math.floor(lastStart + j * dxs)
+        local xEnd   = math.ceil (lastEnd   + j * dxe)
+        FillLine(xStart, xEnd, y)
     end
 end
 
