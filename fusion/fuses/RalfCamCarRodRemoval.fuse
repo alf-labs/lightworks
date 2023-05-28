@@ -88,6 +88,15 @@ function Create()
         ICD_Center = 1,
         })
 
+    _inFillBalance = self:AddInput("Fill Left/Right Balance", "FillBalance", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1,
+        INP_Default = 0.5,
+        ICD_Center = 1,
+        })
+
     _inBorderSmoothing = self:AddInput("Border Smoothing", "BorderSmoothing", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -149,6 +158,7 @@ function Process(req)
     _showDetection = _inDetection:GetValue(req).Value
     _lumaThreshold = _inLumaThreshold:GetValue(req).Value
 	_fillBorderPxW = _inFillBorderW:GetValue(req).Value
+	_fillBalance = _inFillBalance:GetValue(req).Value
 	_borderSmooth = _inBorderSmoothing:GetValue(req).Value
 	_centerSmooth = _inCenterSmoothing:GetValue(req).Value
 	_topBlendingPxH = _inTopBlendingH:GetValue(req).Value
@@ -677,6 +687,24 @@ function FillLine(xStart, xEnd, dy)
         local p2 = Pixel()
         ImgAveragePixelY3(x1, dy, p1)
         ImgAveragePixelY3(x2, dy, p2)
+        local balance = _fillBalance
+        if balance == 0 then
+            -- use only left point
+            p2 = p1
+        elseif balance == 1 then
+            -- use only right point
+            p1 = p2
+        elseif balance < 0.5 then
+            local a2 = balance * 2
+            local a1 = 1 - a2
+            -- p2 = p2 * a2 + p1 * a1
+            MixPixel(p1, a1, p2, a2)
+        elseif balance > 0.5 then
+            local a2 = (balance - 0.5) * 2
+            local a1 = 1 - a2
+            -- p1 = p1 * a1 + p2 * a2
+            MixPixel(p2, a2, p1, a1)            
+        end
 
         local ah = 1.0
         if topBlendingPxH > 0 then
@@ -704,6 +732,17 @@ function FillLine(xStart, xEnd, dy)
             Merge1(x + xEnd + 1, dy, ah * a2, p2)
         end
     end
+end
+
+function MixPixel(p1, a1, p2, a2)
+    -- Performs operation: p2 = p2 * a2 + p1 * a1
+    -- p1 is unmodified, p2 is modified in-place.
+    local r = p2.R * a2 + p1.R * a1
+    local g = p2.G * a2 + p1.G * a1
+    local b = p2.B * a2 + p1.B * a1
+    p2.R = r
+    p2.G = g
+    p2.B = b
 end
 
 function FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, newY)
