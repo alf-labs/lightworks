@@ -14,6 +14,7 @@ function Create()
 		{ MBTNC_AddButton = "Flood Fill", MBTNCD_ButtonWidth = 0.3, },  -- 1
 		{ MBTNC_AddButton = "Method 4", MBTNCD_ButtonWidth = 0.3, },  -- 4
 		INP_DoNotifyChanged = true,
+        INP_External = false, -- not animated
 	})
 
     _inOriginPoint = self:AddInput("Origin Point", "OriginPoint", { --UI Label, Internal Ref
@@ -119,6 +120,7 @@ function Create()
         INP_Integer = true,
         INP_Default = 0.0,
         INP_DoNotifyChanged = true,
+        INP_External = false, -- not animated
         })
 
     _inOverlay = self:AddInput("Show Overlay", "ShowOverlay", {
@@ -127,6 +129,7 @@ function Create()
         INP_Integer = true,
         INP_Default = 0.0,
         INP_DoNotifyChanged = true,
+        INP_External = false, -- not animated
         })
 
     _inOverlayPoint = self:AddInput("Overlay Point", "OverlayPoint", { --UI Label, Internal Ref
@@ -147,9 +150,10 @@ function Create()
         LINK_Main = 1,
         })
 end
- 
+
 function Process(req)
     _tp = Pixel()
+    _time = req.Time
     _img = InImage:GetValue(req)
     _method = _inMethod:GetValue(req).Value
     _showOverlay = _inOverlay:GetValue(req).Value
