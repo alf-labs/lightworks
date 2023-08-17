@@ -198,7 +198,7 @@ function Process(req)
     _lumaRef = _tp.G  -- (R=H, G=L, B=S)
     _scanStartPxX = Clamp(_originPxX - _fillScanPxW, 0, _imgPxW1)
     _scanEndPxX = Clamp(_originPxX + _fillScanPxW, _scanStartPxX, _imgPxW1)
-    local lumaMin, lumaMax, lumaDelta, maxPxX = ScanLine(_originPxY)
+    local lumaMin, lumaMax, lumaDelta = ScanLine(_originPxY)
 
     _lumaRef = (_lumaRef - lumaMin) / lumaDelta -- reshape to min/max
 
@@ -210,8 +210,6 @@ function Process(req)
         Method1(lumaMin, lumaMax, lumaDelta)
     elseif _method == 2 then
         Method4(lumaMin, lumaMax, lumaDelta)
-    else
-        Method5(lumaMin, lumaMax, lumaDelta, maxPxX)
     end
 
     if _showOverlay == 1 then
@@ -348,115 +346,10 @@ function Method4(lumaMin, lumaMax, lumaDelta)
             if deltaXMid < wref * xRefMoveThreshold then
                 xMid = newXMid
                 if lastY == y + 1 then
+                    -- print("> lastY ".. lastY .. " single Y " .. y)
                     FillLine(xStart, xEnd, y)
                 else
-                    FillLinesInterpolate(lastStart, lastEnd, lastY, xStart, xEnd, y)
-                end
-                lastY = y
-                lastStart = xStart
-                lastEnd = xEnd
-            end
-        end
-
-        wref = wref + wgrowth
-    end
-    if lastY > _fillBottomPxY and lastY < _originPxY then
-        -- copy down to the bottom
-        local lastMid = (lastStart + lastEnd) / 2
-        local lastWidth = lastEnd - lastStart
-        local newMid = cxMid + (lastY - _fillBottomPxY) * (lastMid - cxMid) / (_originPxY - lastY)
-        local deltaXMid = math.abs(newMid - lastMid)
-        if deltaXMid > wref * xRefMoveThreshold then
-            newMid = lastMid + wref * xRefMoveThreshold * ((newMid - lastMid) / deltaXMid)
-        end
-        local newStart = math.floor(newMid - lastWidth / 2)
-        local newEnd   = math.ceil (newMid + lastWidth / 2)
-        -- print("Y orig " .. _originPxY .. "=" .. cxMid .. " to Y last " .. lastY .. "=" .. lastMid .. " to Y bottom " .. _fillBottomPxY .. "=" .. newMid)
-        FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, _fillBottomPxY)
-    else
-        for y = lastY - 1, _fillBottomPxY, -1 do
-            FillLine(lastStart, lastEnd, y)
-        end
-    end
-end
-
-function Method5(lumaMin, lumaMax, lumaDelta, maxPxX)
-    -- Method 4: A merge between method 2 (1-pass scan) using center/width from method 3.
-    local cxStart, cxEnd = FindEdges(maxPxX, _originPxY, lumaMin, lumaMax, lumaDelta)
-    local cxMid = (cxStart + cxEnd) / 2
-    local cWidth = cxEnd - cxStart
-    -- print("M5 orgX=" .. _originPxX .. ", maxPxX=" .. maxPxX .. ", cxMid=" .. cxMid .. ", cxStart=" .. cxStart .. ", cxEnd=" .. cxEnd)
-
-    FillLine(cxStart, cxEnd, _originPxY)
-
-    local wref = cWidth
-    local wgrowth = 0.0532          -- pixel per Y line (shrink towards top)
-    local wThresholdMax = 1 + _centerSmooth         -- +30%
-    local wThresholdMin = 1 - (_centerSmooth / 2)   -- -15%
-    local xRefMoveThreshold = 1 - _borderSmooth     -- +/-10% allowed center movement
-
-    -- fill towards top
-    local xMid = cxMid
-    local lastY = _originPxY
-    local lastStart = cxStart
-    local lastEnd = cxEnd
-    for y = _originPxY + 1, _fillTopPxY do
-        -- scan line and find new edges
-        local lumaMin, lumaMax, lumaDelta = ScanLine(y)
-        local xStart, xEnd = FindEdges(xMid, y, lumaMin, lumaMax, lumaDelta)
-        local newWidth = xEnd - xStart
-
-        if newWidth >= wref * wThresholdMin and newWidth <= wref * wThresholdMax then
-            local newXMid = (xStart + xEnd) / 2
-            local deltaXMid = math.abs(newXMid - xMid)
-            if deltaXMid < wref * xRefMoveThreshold then
-                if lastY == y - 1 then
-                    FillLine(xStart, xEnd, y)
-                else
-                    FillLinesInterpolate(lastStart, lastEnd, lastY, xStart, xEnd, y)
-                end
-                lastY = y
-                lastStart = xStart
-                lastEnd = xEnd
-                xMid = newXMid
-            end
-        end
-
-        wref = wref - wgrowth
-    end
-    if lastY < _fillTopPxY and lastY > _originPxY then
-        -- copy up to the top
-        local lastMid = (lastStart + lastEnd) / 2
-        local newMid = cxMid + (_fillTopPxY - lastY) * (lastMid - cxMid) / (lastY - _originPxY)
-        local lastWidth = lastEnd - lastStart
-        local newStart = math.floor(newMid - lastWidth / 2)
-        local newEnd   = math.ceil (newMid + lastWidth / 2)
-        FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, _fillTopPxY)
-    else
-        for y = lastY + 1, _fillTopPxY do
-            FillLine(lastStart, lastEnd, y)
-        end
-    end
-
-    -- fill towards bottom
-    xMid = cxMid
-    lastY = _originPxY
-    lastStart = cxStart
-    lastEnd = cxEnd
-    for y = _originPxY - 1, _fillBottomPxY, -1 do
-        -- scan line and find new edges
-        local lumaMin, lumaMax, lumaDelta = ScanLine(y)
-        local xStart, xEnd = FindEdges(xMid, y, lumaMin, lumaMax, lumaDelta)
-        local newWidth = xEnd - xStart
-
-        if newWidth >= wref * wThresholdMin and newWidth <= wref * wThresholdMax then
-            local newXMid = (xStart + xEnd) / 2
-            local deltaXMid = math.abs(newXMid - xMid)
-            if deltaXMid < wref * xRefMoveThreshold then
-                xMid = newXMid
-                if lastY == y + 1 then
-                    FillLine(xStart, xEnd, y)
-                else
+                    -- print("> lastY ".. lastY .. " interp Y " .. y)
                     FillLinesInterpolate(lastStart, lastEnd, lastY, xStart, xEnd, y)
                 end
                 lastY = y
@@ -491,7 +384,6 @@ function ScanLine(dy)
     local lumaVal, lumaDelta
     local lumaMax = 0.0
     local lumaMin = 1.0
-    local maxPxX = (_scanStartPxX + _scanEndPxX) / 2
     for x = _scanStartPxX, _scanEndPxX do
         _img:GetPixel(x, dy, _tp)
         lumaVal = _tp.G  -- (R=H, G=L, B=S)
@@ -500,12 +392,10 @@ function ScanLine(dy)
         end
         if lumaVal > lumaMax then
             lumaMax = lumaVal
-            maxPxX = x
         end
     end
     lumaDelta = math.max(0.0001, lumaMax - lumaMin)
-    -- print("scan Y " .. dy .. " lumaMax " .. lumaMax .. " @ px " .. maxPxX)
-    return lumaMin, lumaMax, lumaDelta, maxPxX
+    return lumaMin, lumaMax, lumaDelta
 end
 
 function FindEdges(xRef, dy, lumaMin, lumaMax, lumaDelta)
@@ -542,7 +432,7 @@ function FindEdges(xRef, dy, lumaMin, lumaMax, lumaDelta)
     return xStart, xEnd
 end
 
-function FillLine(xStart, xEnd, dy)
+function FillLine(xStart, xEnd, dy, isInterp)
     local fillTopPxY = _fillTopPxY
     local fillStaticPxW = _fillStaticPxW
     local fillBorderPxW = _fillBorderPxW
@@ -561,9 +451,15 @@ function FillLine(xStart, xEnd, dy)
 
 
     if _showDetection == 1 then
-        _tp.R = .7
-        _tp.G = .7
-        _tp.B = 0
+        if isInterp then
+            _tp.R = .7
+            _tp.G = 0
+            _tp.B = .7
+        else
+            _tp.R = .7
+            _tp.G = .7
+            _tp.B = 0
+        end
         for x = xStart - fillBorderPxW, xStart do
             _out:SetPixel(x, dy, _tp)
         end
@@ -571,9 +467,15 @@ function FillLine(xStart, xEnd, dy)
             _out:SetPixel(x, dy, _tp)
         end
 
-        _tp.R = 1
-        _tp.G = 0
-        _tp.B = 0
+        if isInterp then
+            _tp.R = 1
+            _tp.G = 0
+            _tp.B = .7
+        else
+            _tp.R = 1
+            _tp.G = 0
+            _tp.B = 0
+        end
         if topBlendingPxH > 0 then
             local ys = fillTopPxY - topBlendingPxH
             if dy == ys then
@@ -675,7 +577,7 @@ function FillLinesInterpolate(lastStart, lastEnd, lastY, newStart, newEnd, newY)
         local y = lastY + ydir * j
         local xStart = math.floor(lastStart + j * dxs)
         local xEnd   = math.ceil (lastEnd   + j * dxe)
-        FillLine(xStart, xEnd, y)
+        FillLine(xStart, xEnd, y, true)
     end
 end
 
