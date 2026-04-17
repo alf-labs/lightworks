@@ -1,0 +1,255 @@
+--
+-- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
+-- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
+-- 
+
+FuRegisterClass("RalfDeltaMask", CT_Tool, {
+    REGS_Name = "Ralf Delta Mask",
+    REGS_Category = "Matte",
+    REGS_OpIconString = "E1BC",
+    REGS_OpDescription = "Ralf Delta Mask",
+    })
+
+function Create()
+    _inDiffMethod = self:AddInput("Diff on", "DiffMethod", { --UI Label, Internal Ref
+		LINKID_DataType = "Number",
+		INPID_InputControl = "MultiButtonControl",
+		INP_Default = 0.0,
+		{ MBTNC_AddButton = "RGB",    MBTNCD_ButtonWidth = 0.3, },  -- index 0
+		{ MBTNC_AddButton = "Chroma", MBTNCD_ButtonWidth = 0.3, },  -- index 1
+		{ MBTNC_AddButton = "Luma",   MBTNCD_ButtonWidth = 0.3, },  -- index 2
+		INP_DoNotifyChanged = true,
+        INP_External = false, -- not animated
+	})
+
+    _inThreshold = self:AddInput("Threshold", "Threshold", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.05,
+        ICD_Center = 1,
+        })
+
+    _inOpacity = self:AddInput("OLD Fg Opacity", "FgOpacity", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 1.0,
+        ICD_Center = 1,
+        })
+
+    _inReveal = self:AddInput("Reveal Matte", "Reveal", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Integer = true,
+        INP_Default = 1.0,
+        INP_DoNotifyChanged = true,
+        ICD_Center = 1,
+        })
+
+    _inBlurRadius = self:AddInput("Gaussian Blur", "BlurRadius", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 10.0,
+        INP_Default = 0.0,
+        ICD_Center = 1,
+        })
+
+    _inErDiRadius = self:AddInput("Erode Dilate", "ErodeDilate", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 10.0,
+        INP_Default = 0.0,
+        ICD_Center = 1,
+        })
+
+    _inExcludeBelow = self:AddInput("OLD Exclude Below", "ExcludeBelow", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = -1.0,
+        INP_MaxScale = 10.0,
+        INP_Default = 3.0,
+        ICD_Center = 1,
+        })
+
+    _inIncludeAbove = self:AddInput("OLD Include Above", "IncludeAbove", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = -1.0,
+        INP_MaxScale = 10.0,
+        INP_Default = 7.0,
+        ICD_Center = 1,
+        })
+
+    InImgForeground = self:AddInput("Foreground", "Foreground", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+
+    InImgReference = self:AddInput("Clean Plate", "Reference", {
+        LINKID_DataType = "Image",
+        LINK_Main = 2,
+        INP_Required = false,
+        })
+
+    InImgBackground = self:AddInput("Background", "Background", {
+        LINKID_DataType = "Image",
+        LINK_Main = 3,
+        INP_Required = false,
+        })
+
+    OutImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+end
+
+function Process(req)
+    _tpF = Pixel()
+    _tpR = Pixel()
+    _imgFg = InImgForeground:GetValue(req)
+    _imgRef = InImgReference:GetValue(req)
+    _imgBg = InImgBackground:GetValue(req)
+    _diffMethod = _inDiffMethod:GetValue(req).Value
+    _threshold = math.abs(_inThreshold:GetValue(req).Value)
+    _blurRadius = _inBlurRadius:GetValue(req).Value
+    _erDiRadius = _inErDiRadius:GetValue(req).Value
+    _reveal = _inReveal:GetValue(req).Value
+
+    _imgPxW1 = _imgFg.Width - 1
+    _imgPxH1 = _imgFg.Height - 1
+    _matte = Image({IMG_Like = _imgFg})
+
+    if _imgRef ~= nil then
+        ps_matte()
+    end
+
+    if _erDiRadius > 0 then
+        _tmp = Image({IMG_Like = _imgFg})
+        local erdi = _erDiRadius / 720
+        -- Step 1: Dilate (positive amount)
+        _matte:ErodeDilate(_tmp, {
+            ErDl_Filter = "Box",
+            ErDl_Red = true,
+            ErDl_Green = true,
+            ErDl_Blue = true,
+            ErDl_Alpha = true,
+            ErDl_AmountX = erdi,
+            ErDl_AmountY = erdi,
+            })
+        -- Step 2: Erode (negative amount)
+        erdi = -1 * erdi
+        _tmp:ErodeDilate(_matte, {
+            ErDl_Filter = "Box",
+            ErDl_Red = true,
+            ErDl_Green = true,
+            ErDl_Blue = true,
+            ErDl_Alpha = true,
+            ErDl_AmountX = erdi,
+            ErDl_AmountY = erdi,
+            })
+    end
+
+    -- print("Blur" .. (_blurRadius or "nil") )
+    if _blurRadius > 0 then
+        -- SDK indicates to div by 720 to match the standard blur tool.
+        -- otherwise it's 0..1 to match the size of the source image.
+        _tmp = Image({IMG_Like = _imgFg})
+        _matte:Blur(_tmp, {
+			BLUR_Type = "Gaussian", 
+			BLUR_Red = true,
+			BLUR_Green = true,
+			BLUR_Blue = true,
+			BLUR_Alpha = true,
+			BLUR_XSize = _blurRadius / 720, 
+			BLUR_YSize = _blurRadius / 720,
+		})
+        _matte = _tmp
+    end
+
+    if _reveal == 1 or _imgBg == nil then
+        -- The output is the matte.
+        OutImage:Set(req, _matte)
+    else
+        _fg = _imgFg:ChannelOpOf("Multiply", _matte, {
+            R = "Fg.R", G = "Fg.G", B = "Fg.B", A = "Fg.A"
+        })
+        local _out = _imgBg:Copy()
+        _out:Merge(_fg, {
+            MO_ApplyMode = "Merge",
+        })
+        OutImage:Set(req, _out)
+    end
+end
+
+local ps_matte_rgb = function(x, y, pF, pR)
+    local diff = math.abs(pF.R - pR.R) + math.abs(pF.G - pR.G) + math.abs(pF.B - pR.B) 
+    diff = diff / 3.0
+    
+    local val = (diff >= threshold) and 1.0 or 0.0
+    
+    pF.R = val
+    pF.G = val
+    pF.B = val
+    pF.A = val -- matte in Alpha channel too
+    
+    return pF
+end
+
+local ps_matte_chroma = function(x, y, pF, pR)
+    local pFCr = ( 0.439  * pF.R ) - ( 0.368 * pF.G ) - ( 0.071 * pF.B ) + 0.5
+    local pFCb = ( -0.148 * pF.R ) - ( 0.291 * pF.G ) + ( 0.439 * pF.B ) + 0.5
+    local pRCr = ( 0.439  * pR.R ) - ( 0.368 * pR.G ) - ( 0.071 * pR.B ) + 0.5
+    local pRCb = ( -0.148 * pR.R ) - ( 0.291 * pR.G ) + ( 0.439 * pR.B ) + 0.5
+    local diff = ( math.abs(pFCr - pRCr) + math.abs(pFCb - pRCb) ) / 2.0
+
+    local val = (diff >= threshold) and 1.0 or 0.0
+    
+    pF.R = val
+    pF.G = val
+    pF.B = val
+    pF.A = val -- matte in Alpha channel too
+    
+    return pF
+end
+
+local ps_matte_luma = function(x, y, pF, pR)
+    local pFY = ( 0.257  * pF.R ) - ( 0.504 * pF.G ) - ( 0.098 * pF.B ) + 0.0625
+    local pRY = ( 0.257  * pR.R ) - ( 0.504 * pR.G ) - ( 0.098 * pR.B ) + 0.0625
+    local diff = math.abs(pFY - pRY)
+    
+    local val = (diff >= threshold) and 1.0 or 0.0
+    
+    pF.R = val
+    pF.G = val
+    pF.B = val
+    pF.A = val -- matte in Alpha channel too
+    
+    return pF
+end
+
+function ps_matte()
+    local ps_func
+
+    if _diffMethod == 0 then
+        ps_func = ps_matte_rgb
+    elseif _diffMethod == 1 then
+        ps_func = ps_matte_chroma
+    elseif _diffMethod == 2 then
+        ps_func = ps_matte_luma
+    end
+
+    _matte:MultiProcessPixels(nil,
+            {threshold = _threshold},
+            0, 0, _imgFg.Width, _imgFg.Height,
+            _imgFg, _imgRef,
+            ps_func)
+end
+
+function NotifyChanged(inp, param, time)
+    -- do something?
+end
