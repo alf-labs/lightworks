@@ -22,12 +22,21 @@ function Create()
         INP_External = false, -- not animated
 	})
 
-    _inThreshold = self:AddInput("Threshold", "Threshold", {
+    _inThreshold1 = self:AddInput("Threshold 1", "Threshold1", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.0,
         INP_MaxScale = 1.0,
-        INP_Default = 0.05,
+        INP_Default = 0.5,
+        ICD_Center = 1,
+        })
+
+    _inThreshold2 = self:AddInput("Threshold 2", "Threshold2", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.5,
         ICD_Center = 1,
         })
 
@@ -52,7 +61,7 @@ function Create()
     _inErDiRadius = self:AddInput("Erode Dilate", "ErodeDilate", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
-        INP_MinScale = 0.0,
+        INP_MinScale = -10.0,
         INP_MaxScale = 10.0,
         INP_Default = 0.0,
         ICD_Center = 1,
@@ -115,7 +124,8 @@ function Process(req)
     local imgBg = InImgBackground:GetValue(req)
     local imgEM = InImgEffectMask:GetValue(req)
     _diffMethod = _inDiffMethod:GetValue(req).Value
-    _threshold = math.abs(_inThreshold:GetValue(req).Value)
+    _threshold1 = math.abs(_inThreshold1:GetValue(req).Value) / 10
+    _threshold2 = math.abs(_inThreshold2:GetValue(req).Value) / 10
     local blurRadius = _inBlurRadius:GetValue(req).Value
     local erDiRadius = _inErDiRadius:GetValue(req).Value
     local reveal = _inReveal:GetValue(req).Value
@@ -124,6 +134,12 @@ function Process(req)
 
     local imgPxW = _imgFg.Width
     local imgPxH = _imgFg.Height
+
+    if _threshold1 > _threshold2 then
+        local tmp = _threshold1
+        _threshold1 = _threshold2
+        _threshold2 = _threshold1
+    end
 
     local cLeft   = math.min(corner1Pt.X, corner2Pt.X)
     local cBottom = math.min(corner1Pt.Y , corner2Pt.Y )
@@ -175,7 +191,7 @@ function Process(req)
     end
     -- print("@@ 2 after matte " .. _matte.Width .. "x" .. _matte.Height)
 
-    if erDiRadius > 0 then
+    if erDiRadius ~= 0 then
         _tmp = Image({IMG_Like = _imgFg})
         local erdi = erDiRadius / 720
         -- Step 1: Dilate (positive amount)
@@ -254,12 +270,22 @@ function Process(req)
     end
 end
 
+local ps_calc_threshold = function(diff, t1, t2)
+    if diff <= t1 then
+        return 0.0
+    elseif diff >= t2 then
+        return 1.0
+    else
+        return (diff - t1) / (t2 - t1)
+    end
+end
+
 local ps_matte_rgb = function(x, y, pF, pR)
     local diff = math.abs(pF.R - pR.R) + math.abs(pF.G - pR.G) + math.abs(pF.B - pR.B) 
     diff = diff / 3.0
     
-    local val = (diff >= threshold) and 1.0 or 0.0
-    
+    local val = calc_threshold(diff, threshold1, threshold2)
+
     pF.R = val
     pF.G = val
     pF.B = val
@@ -275,7 +301,7 @@ local ps_matte_chroma = function(x, y, pF, pR)
     local pRCb = ( -0.148 * pR.R ) - ( 0.291 * pR.G ) + ( 0.439 * pR.B ) + 0.5
     local diff = ( math.abs(pFCr - pRCr) + math.abs(pFCb - pRCb) ) / 2.0
 
-    local val = (diff >= threshold) and 1.0 or 0.0
+    local val = calc_threshold(diff, threshold1, threshold2)
     
     pF.R = val
     pF.G = val
@@ -290,7 +316,7 @@ local ps_matte_luma = function(x, y, pF, pR)
     local pRY = ( 0.257  * pR.R ) - ( 0.504 * pR.G ) - ( 0.098 * pR.B ) + 0.0625
     local diff = math.abs(pFY - pRY)
     
-    local val = (diff >= threshold) and 1.0 or 0.0
+    local val = calcThreshold(diff, threshold1, threshold2)
     
     pF.R = val
     pF.G = val
@@ -312,7 +338,10 @@ function ps_matte()
     end
 
     _matte:MultiProcessPixels(nil,
-            {threshold = _threshold},
+            {   threshold1 = _threshold1,
+                threshold2 = _threshold2,
+                calc_threshold = ps_calc_threshold,
+            },
             0, 0, _imgFg.Width, _imgFg.Height,
             _imgFg, _imgRef,
             ps_func)
