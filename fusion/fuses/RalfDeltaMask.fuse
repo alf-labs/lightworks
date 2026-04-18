@@ -31,15 +31,6 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inOpacity = self:AddInput("OLD Fg Opacity", "FgOpacity", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "SliderControl",
-        INP_MinScale = 0.0,
-        INP_MaxScale = 1.0,
-        INP_Default = 1.0,
-        ICD_Center = 1,
-        })
-
     _inReveal = self:AddInput("Reveal Matte", "Reveal", {
         LINKID_DataType = "Number",
         INPID_InputControl = "CheckboxControl",
@@ -67,22 +58,20 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inExcludeBelow = self:AddInput("OLD Exclude Below", "ExcludeBelow", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "SliderControl",
-        INP_MinScale = -1.0,
-        INP_MaxScale = 10.0,
-        INP_Default = 3.0,
-        ICD_Center = 1,
+    _inCorner1Point = self:AddInput("Top Left", "Corner1Point", {
+        LINKID_DataType = "Point",
+        INPID_InputControl = "OffsetControl",
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.0,
+        INP_DefaultY = 0.0,
         })
 
-    _inIncludeAbove = self:AddInput("OLD Include Above", "IncludeAbove", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "SliderControl",
-        INP_MinScale = -1.0,
-        INP_MaxScale = 10.0,
-        INP_Default = 7.0,
-        ICD_Center = 1,
+    _inCorner2Point = self:AddInput("Bottom Left", "Corner2Point", {
+        LINKID_DataType = "Point",
+        INPID_InputControl = "OffsetControl",
+        INPID_PreviewControl = "CrosshairControl",
+        INP_DefaultX = 1.0,
+        INP_DefaultY = 1.0,
         })
 
     InImgForeground = self:AddInput("Foreground", "Foreground", {
@@ -102,35 +91,93 @@ function Create()
         INP_Required = false,
         })
 
+    InImgEffectMask = self:AddInput("Effect Mask", "EffectMask", {
+        LINKID_DataType = "Image",
+        LINK_Main = 4,
+        INP_Required = false,
+        })
+
     OutImage = self:AddOutput("Output", "Output", {
         LINKID_DataType = "Image",
         LINK_Main = 1,
         })
 end
 
+function floatToPixel(f, sz)
+    -- clamp to 0..1
+    local f = math.max(0, math.min(1, f))
+    return math.floor(f * sz)
+end
+
 function Process(req)
-    _tpF = Pixel()
-    _tpR = Pixel()
     _imgFg = InImgForeground:GetValue(req)
     _imgRef = InImgReference:GetValue(req)
-    _imgBg = InImgBackground:GetValue(req)
+    local imgBg = InImgBackground:GetValue(req)
+    local imgEM = InImgEffectMask:GetValue(req)
     _diffMethod = _inDiffMethod:GetValue(req).Value
     _threshold = math.abs(_inThreshold:GetValue(req).Value)
-    _blurRadius = _inBlurRadius:GetValue(req).Value
-    _erDiRadius = _inErDiRadius:GetValue(req).Value
-    _reveal = _inReveal:GetValue(req).Value
+    local blurRadius = _inBlurRadius:GetValue(req).Value
+    local erDiRadius = _inErDiRadius:GetValue(req).Value
+    local reveal = _inReveal:GetValue(req).Value
+    local corner1Pt =  _inCorner1Point:GetValue(req)
+    local corner2Pt =  _inCorner2Point:GetValue(req)
 
-    _imgPxW1 = _imgFg.Width - 1
-    _imgPxH1 = _imgFg.Height - 1
+    local imgPxW = _imgFg.Width
+    local imgPxH = _imgFg.Height
+
+    local cLeft   = math.min(corner1Pt.X, corner2Pt.X)
+    local cBottom = math.min(corner1Pt.Y , corner2Pt.Y )
+    local cRight  = math.max(corner1Pt.X, corner2Pt.X)
+    local cTop    = math.max(corner1Pt.Y, corner2Pt.Y)
+    local use_crop = ((cLeft > 0) or (cBottom > 0) or (cRight < 1) or (cTop < 1))
+    cLeft = floatToPixel(cLeft, imgPxW)
+    cRight = floatToPixel(cRight, imgPxW)
+    cBottom = floatToPixel(cBottom, imgPxH)
+    cTop = floatToPixel(cTop, imgPxH)
+    local cropX = cLeft
+    local cropY = cBottom
+    local cropW = cRight - cLeft
+    local cropH = cTop - cBottom
+    use_crop = use_crop and (cropW > 0) and (cropH > 0)
+    -- print("@@ crop " .. tostring(use_crop) .. ": " .. cropX .. "x" .. cropY .. " + " .. cropW .. "x" .. cropH)
+
+    local originalImgFg = _imgFg
+
+    if use_crop then
+        local cropped = Image({IMG_Like = _imgFg, IMG_Width = cropW, IMG_Height = cropH})
+        _imgFg:Crop(cropped, {CROP_XOffset = cropX, CROP_YOffset = cropY})
+        _imgFg = cropped
+
+        if _imgRef ~= nil then
+            cropped = Image({IMG_Like = _imgRef, IMG_Width = cropW, IMG_Height = cropH})
+            _imgRef:Crop(cropped, {CROP_XOffset = cropX, CROP_YOffset = cropY})
+            _imgRef = cropped
+        end
+
+        if imgBg ~= nil then
+            cropped = Image({IMG_Like = imgBg, IMG_Width = cropW, IMG_Height = cropH})
+            imgBg:Crop(cropped, {CROP_XOffset = cropX, CROP_YOffset = cropY})
+            imgBg = cropped
+        end
+
+        if imgEM ~= nil then
+            cropped = Image({IMG_Like = imgEM, IMG_Width = cropW, IMG_Height = cropH})
+            imgEM:Crop(cropped, {CROP_XOffset = cropX, CROP_YOffset = cropY})
+            imgEM = cropped
+        end
+        -- print("@@ 1 after crop")
+    end
+
     _matte = Image({IMG_Like = _imgFg})
 
     if _imgRef ~= nil then
         ps_matte()
     end
+    -- print("@@ 2 after matte " .. _matte.Width .. "x" .. _matte.Height)
 
-    if _erDiRadius > 0 then
+    if erDiRadius > 0 then
         _tmp = Image({IMG_Like = _imgFg})
-        local erdi = _erDiRadius / 720
+        local erdi = erDiRadius / 720
         -- Step 1: Dilate (positive amount)
         _matte:ErodeDilate(_tmp, {
             ErDl_Filter = "Box",
@@ -153,9 +200,10 @@ function Process(req)
             ErDl_AmountY = erdi,
             })
     end
+    -- print("@@ 3 after erode")
 
     -- print("Blur" .. (_blurRadius or "nil") )
-    if _blurRadius > 0 then
+    if blurRadius > 0 then
         -- SDK indicates to div by 720 to match the standard blur tool.
         -- otherwise it's 0..1 to match the size of the source image.
         _tmp = Image({IMG_Like = _imgFg})
@@ -165,23 +213,43 @@ function Process(req)
 			BLUR_Green = true,
 			BLUR_Blue = true,
 			BLUR_Alpha = true,
-			BLUR_XSize = _blurRadius / 720, 
-			BLUR_YSize = _blurRadius / 720,
+			BLUR_XSize = blurRadius / 720, 
+			BLUR_YSize = blurRadius / 720,
 		})
         _matte = _tmp
     end
+    -- print("@@ 4 after blur")
 
-    if _reveal == 1 or _imgBg == nil then
+    if reveal == 1 or imgBg == nil then
         -- The output is the matte.
+        if use_crop then
+            local uncropped = Image({IMG_Like = originalImgFg})
+            _matte:Crop(uncropped, {CROP_XOffset = -1 * cropX, CROP_YOffset = -1 * cropY})
+            _matte = uncropped
+        end
+
         OutImage:Set(req, _matte)
     else
         _fg = _imgFg:ChannelOpOf("Multiply", _matte, {
             R = "Fg.R", G = "Fg.G", B = "Fg.B", A = "Fg.A"
         })
-        local _out = _imgBg:Copy()
+        local _out = imgBg:Copy()
         _out:Merge(_fg, {
             MO_ApplyMode = "Merge",
         })
+
+        if imgEM ~= nil then
+            _out = _out:ChannelOpOf("Multiply", imgEM, {
+                R = "Fg.A", G = "Fg.A", B = "Fg.A", A = "Fg.A"
+            })
+        end
+
+        if use_crop then
+            local uncropped = Image({IMG_Like = originalImgFg})
+            _out:Crop(uncropped, {CROP_XOffset = -1 * cropX, CROP_YOffset = -1 * cropY})
+            _out = uncropped
+        end
+
         OutImage:Set(req, _out)
     end
 end
