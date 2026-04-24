@@ -1,3 +1,8 @@
+--
+-- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
+-- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
+--
+
 FuRegisterClass("RalfCamCarRodRemoval", CT_Tool, {
     REGS_Name = "Ralf Cam Car Rod Removal",
     REGS_Category = "Transform",
