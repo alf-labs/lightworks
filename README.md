@@ -37,7 +37,7 @@ Description: [RalfDeltaMask.md](./fusion/fuses/RalfDeltaMask.md) for full detail
 
 The following FX shader was written for LightWorks 12.0.
 
-### Ralf Delta Mas Blend (FX Shader)
+### Ralf Delta Mask Blend (FX Shader)
 
 This FX Shader is a 1-pass delta keyer combined with a mask & overlay merge operation.
 
