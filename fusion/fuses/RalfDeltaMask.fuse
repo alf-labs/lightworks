@@ -67,20 +67,20 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inCorner1Point = self:AddInput("Top Left", "Corner1Point", {
+    _inCorner1Point = self:AddInput("Top Left Crop", "Corner1Point", {
         LINKID_DataType = "Point",
         INPID_InputControl = "OffsetControl",
         INPID_PreviewControl = "CrosshairControl", -- Display Control
         INP_DefaultX = 0.0,
-        INP_DefaultY = 0.0,
+        INP_DefaultY = 1.0,
         })
 
-    _inCorner2Point = self:AddInput("Bottom Left", "Corner2Point", {
+    _inCorner2Point = self:AddInput("Bottom Right Crop", "Corner2Point", {
         LINKID_DataType = "Point",
         INPID_InputControl = "OffsetControl",
         INPID_PreviewControl = "CrosshairControl",
         INP_DefaultX = 1.0,
-        INP_DefaultY = 1.0,
+        INP_DefaultY = 0.0,
         })
 
     InImgForeground = self:AddInput("Foreground", "Foreground", {

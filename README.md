@@ -20,7 +20,7 @@ Description: [RalfCamCarRodRemoval.md](./fusion/fuses/RalfCamCarRodRemoval.md) f
 
 ### Ralf Delta Mask (Fuse)
 
-This Fuse is a mix between a Delta Keyer, a Difference Keyer, and a Merge node.
+This Fuse essentially recreates a custom-made Difference Keyer combined with a Merge node.
 It's a direct recreation in Fusion of the [LightWorks FX Shader](#ralf-delta-mask-blend-fx-shader) I wrote years ago.
 
 Fuse: [`RalfDeltaMask.fuse`](./fusion/fuses/RalfDeltaMask.fuse)

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This Fuse is a mix between a Delta Keyer, a Difference Keyer, and a Merge node.
+This Fuse essentially recreates a custom-made Difference Keyer combined with a Merge node.
 It's a direct recreation in Fusion of the
 [LightWorks FX Shader]( ../../README.md#ralf-delta-mask-blend-fx-shader) I wrote years ago:
 
@@ -13,8 +13,8 @@ is moving on the image, and then compose this on top of a background. Here's a v
 
 
 Disclaimer: This can likely be achieved using a Difference Keyer and a Merge node in Resolve.
-I just know that for my limited usage, I always struggle to configure the Difference Keyer properly.
-OTOH it's easier for me to program a Fuse that does _exactly_ what I want, which I did .
+With my limited knowledge of Fusion, I always struggle to configure a Difference Keyer properly
+to get the effect I desire. It's easier for me to program a Fuse that does _exactly_ what I want, which I did.
 
 
 ## Instalation
@@ -70,7 +70,7 @@ The Ralf Delta Mask node has the following properties:
   * Everything below the minimum is 0% (not masked = background is selected),
   * Everything above the maximum is 100% (entirely masked = foreground is selected),
   * Anything in between is a progression 0..100% mask.
-* The "Reveal Matte" checkbox controls whether the output shows the mask, or the blended result.
+* The "Reveal Matte" checkbox controls whether the output shows the mask or the blended result.
 * Gaussian Blur: Applies an optional gaussian blur to the mask. 0 disables the blur.
 * Erode / Dilate:
   * Positive values apply a dilate first followed by an erode of the same ammount
@@ -78,7 +78,7 @@ The Ralf Delta Mask node has the following properties:
   * Negative values apply an erode first followed by a dilate of the same amount
     (this helps to isolate fine details for masks that must keep holes).
   * 0 disables the operation.
-* Top left / Bottom right Crop: these define the clipping boundaries of the mask to speed up computing.
+* Top Left / Bottom Right Crop: these define the clipping boundaries of the mask to speed up computing.
   * 0..1 corresponds to the entire width / height of the image.
   * This helps speed up rendering by limiting the mask to a specific region of interest.
   * These can be interactively manipulated using 2 handles (one green, one red) on the Fusion preview.
@@ -97,6 +97,13 @@ Node inputs:
 * The "Effect Mask" input is optional.
   * If connected, its alpha is applied to the final blended output.
 
+Important: This Fuse does not use the DoD/ROI from Fusion (I'm not familiar enough with the API,
+_quality patches welcome_).
+If you apply an Effect Mask, the entire image is computed, and _then_ it is filtered. This is inefficient.
+That's why there are specific top left/bottom right crop controls: these define the area of the image
+that will be actually processed.
+If you know you do not need to process the entire image, adjusting the crop to just the area needed
+will dramatically speed up processing.
 
 ~~
 
