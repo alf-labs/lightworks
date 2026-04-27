@@ -76,6 +76,14 @@ The Ralf Delta Mask node has the following properties:
 
 * Compute the difference delta on either RGB, Chroma, or Luma.
   * Depending on the scene, one option may work better than the other one.
+  * The Chroma and Luma options may somewhat help if the recorded clips
+    have some minor illumination differences.
+  * Luma and Chroma are defined using the YCbCr colorspace using the conversion
+    formulas from [JFIF ITU-T T.871](https://www.itu.int/rec/T-REC-T.871-201105-I/en)
+    (RGB to YCbCr using full range, instead of the Y′CbCr ITU-R BT.601 with the
+    limited 16-240 range).
+  * The difference is computed as the average of the absolute value of the
+    difference on each channel, and is thus always a value in the [0..1] range.
 * Threshold 1 & 2: The min/max threshold of the difference.
   * This creates a 0..100% gradient:
   * Everything below the minimum is 0% (not masked = background is selected),

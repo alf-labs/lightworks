@@ -190,10 +190,13 @@ float4 ps_blend_chroma( float2 xy1 : TEXCOORD1 ) : COLOR {
     float4 fg = tex2D(FgSampler, xy1);
     float4 sg = tex2D(SgSampler, xy1);
 
-    float fgCr = ( 0.439  * fg.r ) - ( 0.368 * fg.g ) - ( 0.071 * fg.b ) + 0.5;
-    float fgCb = ( -0.148 * fg.r ) - ( 0.291 * fg.g ) + ( 0.439 * fg.b ) + 0.5;
-    float sgCr = ( 0.439  * sg.r ) - ( 0.368 * sg.g ) - ( 0.071 * sg.b ) + 0.5;
-    float sgCb = ( -0.148 * sg.r ) - ( 0.291 * sg.g ) + ( 0.439 * sg.b ) + 0.5;
+    // Updated to use the formula from JFIF ITU-T T.871 (RGB to YCbCr using full range,
+    // instead of the Y′CbCr ITU-R BT.601 with the limited 16-240 range).
+    // Reference: https://www.itu.int/rec/T-REC-T.871-201105-I/en
+    float fgCb = ( -0.1687 * fg.r ) - ( 0.3313 * fg.g ) + ( 0.500  * fg.b ) + 0.5;
+    float sgCb = ( -0.1687 * sg.r ) - ( 0.3313 * sg.g ) + ( 0.500  * sg.b ) + 0.5;
+    float fgCr = (  0.500  * fg.r ) - ( 0.4187 * fg.g ) - ( 0.0813 * fg.b ) + 0.5;
+    float sgCr = (  0.500  * sg.r ) - ( 0.4187 * sg.g ) - ( 0.0813 * sg.b ) + 0.5;
 
     float threshold = ( abs(fgCr - sgCr) + abs(fgCb - sgCb) ) / 2.0;
 
@@ -205,8 +208,11 @@ float4 ps_blend_luma( float2 xy1 : TEXCOORD1 ) : COLOR {
     float4 fg = tex2D(FgSampler, xy1);
     float4 sg = tex2D(SgSampler, xy1);
 
-    float fgY = ( 0.257 * fg.r ) + ( 0.504 * fg.g ) + ( 0.098 * fg.b ) + 0.0625;
-    float sgY = ( 0.257 * sg.r ) + ( 0.504 * sg.g ) + ( 0.098 * sg.b ) + 0.0625;
+    // Updated to use the formula from JFIF ITU-T T.871 (RGB to YCbCr using full range,
+    // instead of the Y′CbCr ITU-R BT.601 with the limited 16-240 range).
+    // Reference: https://www.itu.int/rec/T-REC-T.871-201105-I/en
+    float fgY = ( 0.299 * fg.r ) + ( 0.587 * fg.g ) + ( 0.114 * fg.b ) + 0.0625;
+    float sgY = ( 0.299 * sg.r ) + ( 0.587 * sg.g ) + ( 0.114 * sg.b ) + 0.0625;
     float threshold = abs(fgY - sgY);
 
     fg.a = (threshold < Threshold ? 0.0 : 1.0);

@@ -295,10 +295,13 @@ local ps_matte_rgb = function(x, y, pF, pR)
 end
 
 local ps_matte_chroma = function(x, y, pF, pR)
-    local pFCr = ( 0.439  * pF.R ) - ( 0.368 * pF.G ) - ( 0.071 * pF.B ) + 0.5
-    local pFCb = ( -0.148 * pF.R ) - ( 0.291 * pF.G ) + ( 0.439 * pF.B ) + 0.5
-    local pRCr = ( 0.439  * pR.R ) - ( 0.368 * pR.G ) - ( 0.071 * pR.B ) + 0.5
-    local pRCb = ( -0.148 * pR.R ) - ( 0.291 * pR.G ) + ( 0.439 * pR.B ) + 0.5
+    -- Updated to use the formula from JFIF ITU-T T.871 (RGB to YCbCr using full range,
+    -- instead of the Y′CbCr ITU-R BT.601 with the limited 16-240 range).
+    -- Reference: https://www.itu.int/rec/T-REC-T.871-201105-I/en
+    local pFCb = ( -0.1687 * pF.R ) - ( 0.3313 * pF.G ) + ( 0.500  * pF.B ) + 0.5
+    local pRCb = ( -0.1687 * pR.R ) - ( 0.3313 * pR.G ) + ( 0.500  * pR.B ) + 0.5
+    local pFCr = (  0.500  * pF.R ) - ( 0.4187 * pF.G ) - ( 0.0813 * pF.B ) + 0.5
+    local pRCr = (  0.500  * pR.R ) - ( 0.4187 * pR.G ) - ( 0.0813 * pR.B ) + 0.5
     local diff = ( math.abs(pFCr - pRCr) + math.abs(pFCb - pRCb) ) / 2.0
 
     local val = calc_threshold(diff, threshold1, threshold2)
@@ -312,8 +315,11 @@ local ps_matte_chroma = function(x, y, pF, pR)
 end
 
 local ps_matte_luma = function(x, y, pF, pR)
-    local pFY = ( 0.257  * pF.R ) - ( 0.504 * pF.G ) - ( 0.098 * pF.B ) + 0.0625
-    local pRY = ( 0.257  * pR.R ) - ( 0.504 * pR.G ) - ( 0.098 * pR.B ) + 0.0625
+    -- Updated to use the formula from JFIF ITU-T T.871 (RGB to YCbCr using full range,
+    -- instead of the Y′CbCr ITU-R BT.601 with the limited 16-240 range).
+    -- Reference: https://www.itu.int/rec/T-REC-T.871-201105-I/en
+    local pFY = ( 0.299  * pF.R ) + ( 0.587 * pF.G ) + ( 0.114 * pF.B )
+    local pRY = ( 0.299  * pR.R ) + ( 0.587 * pR.G ) + ( 0.114 * pR.B )
     local diff = math.abs(pFY - pRY)
     
     local val = calcThreshold(diff, threshold1, threshold2)
