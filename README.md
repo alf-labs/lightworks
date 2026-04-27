@@ -21,12 +21,12 @@ Description: [RalfCamCarRodRemoval.md](./fusion/fuses/RalfCamCarRodRemoval.md) f
 ### Ralf Delta Mask (Fuse)
 
 This Fuse is a mix between a Delta Keyer, a Difference Keyer, and a Merge node.
-It's a direct recreation in Fusion of the LightWorks FX Shader I wrote years ago (see below).
+It's a direct recreation in Fusion of the [LightWorks FX Shader](#ralf-delta-mask-blend-fx-shader) I wrote years ago.
 
 Fuse: [`RalfDeltaMask.fuse`](./fusion/fuses/RalfDeltaMask.fuse)
 
 <p align="center">
-<img title="Example of Ralf Delta Mask render" src="./fusion/images/tbd.jpg" >
+<img title="Example of Ralf Delta Mask render" src="./fusion/images/mask_operation1.jpg" >
 </p>
 
 Description: [RalfDeltaMask.md](./fusion/fuses/RalfDeltaMask.md) for full details.
@@ -49,6 +49,8 @@ FX Shader: [`ralf_delta_mask_blend.fx`](./lightworks/fx_shaders/ralf_delta_mask_
 
 Description: [blendmask_explanation.jpg](./lightworks/fx_shaders/blendmask_explanation.jpg) for full details.
 
+Example of usage:
+["Alco RS-3 Boston & Maine at the Randall Museum"](https://youtu.be/lcj9xRbgRBo?t=174) on YouTube
 
 ---
 
