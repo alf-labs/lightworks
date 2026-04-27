@@ -4,12 +4,19 @@
 
 This Fuse essentially recreates a custom-made Difference Keyer combined with a Merge node.
 It's a direct recreation in Fusion of the
-[LightWorks FX Shader]( ../../README.md#ralf-delta-mask-blend-fx-shader) I wrote years ago:
+[LightWorks FX Shader]( ../../README.md#ralf-delta-mask-blend-fx-shader) I wrote years ago.
 
 The goal is to compare a foreground media clip with a reference image to create a mask of what
 is moving on the image, and then compose this on top of a background. Here's a visual summary:
 
 ![Delta Mask and Merge Result](../images/mask_operation1.jpg)
+
+
+TL;DR: 
+A foreground clip is subtracted from a clean plate reference to obtain a matte mask
+that represents _only what has changed_.
+That mask is then used to blend the foreground clip on top of a background clip.
+
 
 
 Disclaimer: This can likely be achieved using a Difference Keyer and a Merge node in Resolve.
@@ -37,8 +44,10 @@ To use this, we need 2 or 3 media inputs:
 * The "reference" -- this can be either a clip, or a static frame (a.k.a "the clean plate")
 
 The clean plate represents the decor without the moving object.
-The foreground is subtracted from the clean plate reference to obtain a matte mask.
+The foreground is subtracted from the clean plate reference to obtain a matte mask
+that represents _only what has changed_.
 That mask is then used to blend the foreground on top of the background.
+
 
 ### Fusion Node Setup
 
@@ -48,7 +57,7 @@ The simplest Fusion node setup is as follow:
 
 * Use the MediaIn as the foreground (typically I use the clip from the Edit timeline).
 * For a static clean plate, simply plug that into a Matte > Clean Plate,
-  and configure it in "Hold Frame" with the non-animated frame for the static reference. 
+  and configure it in "Hold Frame" with the non-animated frame number for the static reference. 
 * Plug both the foreground and the clean plate into a Matte > Ralf Delta Mask node.
 * Drop the background clip from the Media Pool; this creates a new MediaIn node.
   Plug that into the background input of the Ralf Delta Mask node.
@@ -91,7 +100,8 @@ That allows you to directly view the mask in the output.
 Once satisfied, toggle "Reveal Matte" off to see the blended result.
 
 Node inputs:
-* The "Clean Plate" and the "Foreground" inputs are mandatory. There is no output if they are missing.
+* The "Clean Plate" and the "Foreground" inputs are mandatory.
+  * There is no output if they are missing.
 * The "Background" input is optional. 
   * When no background is provided, the output is always the revealed matte.
     The matte has RGBA channels filled and can be used as an input to other nodes
