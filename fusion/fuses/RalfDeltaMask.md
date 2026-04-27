@@ -19,6 +19,8 @@ to get the effect I desire. It's easier for me to program a Fuse that does _exac
 
 ## Instalation
 
+Fuse file: [`RalfDeltaMask.fuse`](RalfDeltaMask.fuse)
+
 To install, copy the Fuse file in
 `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses\`
 a.k.a.
@@ -35,7 +37,7 @@ To use this, we need 2 or 3 media inputs:
 * The "reference" -- this can be either a clip, or a static frame (a.k.a "the clean plate")
 
 The clean plate represents the decor without the moving object.
-The foreground is substracted from the clean plate reference to obtain a matte mask.
+The foreground is subtracted from the clean plate reference to obtain a matte mask.
 That mask is then used to blend the foreground on top of the background.
 
 ### Fusion Node Setup
@@ -66,7 +68,7 @@ The Ralf Delta Mask node has the following properties:
 * Compute the difference delta on either RGB, Chroma, or Luma.
   * Depending on the scene, one option may work better than the other one.
 * Threshold 1 & 2: The min/max threshold of the difference.
-  * This creates a 0..100% gradiant:
+  * This creates a 0..100% gradient:
   * Everything below the minimum is 0% (not masked = background is selected),
   * Everything above the maximum is 100% (entirely masked = foreground is selected),
   * Anything in between is a progression 0..100% mask.
@@ -83,7 +85,7 @@ The Ralf Delta Mask node has the following properties:
   * This helps speed up rendering by limiting the mask to a specific region of interest.
   * These can be interactively manipulated using 2 handles (one green, one red) on the Fusion preview.
 
-A typical use case is to setup the node graph, select an interesting frame,
+A typical use case is to set up the node graph, select an interesting frame,
 and adjust the parameters with "Reveal Matte" enabled.
 That allows you to directly view the mask in the output.
 Once satisfied, toggle "Reveal Matte" off to see the blended result.

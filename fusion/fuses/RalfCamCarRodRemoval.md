@@ -24,6 +24,8 @@ The rest of this document focuses on usage explanations, and implementation deta
 
 ## Instalation
 
+Fuse file: [`RalfCamCarRodRemoval.fuse`](RalfCamCarRodRemoval.fuse)
+
 To install, copy the Fuse file in
 `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses\`
 a.k.a.
