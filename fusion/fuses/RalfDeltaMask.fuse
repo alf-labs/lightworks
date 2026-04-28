@@ -280,9 +280,8 @@ local ps_calc_threshold = function(diff, t1, t2)
     end
 end
 
-local ps_matte_rgb = function(x, y, pF, pR)
-    local diff = math.abs(pF.R - pR.R) + math.abs(pF.G - pR.G) + math.abs(pF.B - pR.B) 
-    diff = diff / 3.0
+local ps_matte_rgb_max = function(x, y, pF, pR)
+    local diff = math.max(math.abs(pF.R - pR.R), math.abs(pF.G - pR.G), math.abs(pF.B - pR.B) )
     
     local val = calc_threshold(diff, threshold1, threshold2)
 
@@ -302,7 +301,7 @@ local ps_matte_chroma = function(x, y, pF, pR)
     local pRCb = ( -0.1687 * pR.R ) - ( 0.3313 * pR.G ) + ( 0.500  * pR.B ) + 0.5
     local pFCr = (  0.500  * pF.R ) - ( 0.4187 * pF.G ) - ( 0.0813 * pF.B ) + 0.5
     local pRCr = (  0.500  * pR.R ) - ( 0.4187 * pR.G ) - ( 0.0813 * pR.B ) + 0.5
-    local diff = ( math.abs(pFCr - pRCr) + math.abs(pFCb - pRCb) ) / 2.0
+    local diff = math.max( math.abs(pFCr - pRCr), math.abs(pFCb - pRCb) )
 
     local val = calc_threshold(diff, threshold1, threshold2)
     
@@ -322,7 +321,7 @@ local ps_matte_luma = function(x, y, pF, pR)
     local pRY = ( 0.299  * pR.R ) + ( 0.587 * pR.G ) + ( 0.114 * pR.B )
     local diff = math.abs(pFY - pRY)
     
-    local val = calcThreshold(diff, threshold1, threshold2)
+    local val = calc_threshold(diff, threshold1, threshold2)
     
     pF.R = val
     pF.G = val
@@ -336,7 +335,7 @@ function ps_matte()
     local ps_func
 
     if _diffMethod == 0 then
-        ps_func = ps_matte_rgb
+        ps_func = ps_matte_rgb_max
     elseif _diffMethod == 1 then
         ps_func = ps_matte_chroma
     elseif _diffMethod == 2 then
