@@ -1,0 +1,1081 @@
+--[[
+
+Suck Less Audio Fuse
+-------------------------------------------------------------------
+
+Source: https://www.steakunderwater.com/wesuckless/viewtopic.php?t=496&sid=61891b7357eac1759e21d90d5fe2eac9
+Version v2.72 dated 2024-08-03, fetched on 2026-05-30
+
+-------------------------------------------------------------------
+Copyright (c) 2015-2019,  Pieter Van Houte
+<pieter[at]secondman[dot]com>
+-------------------------------------------------------------------
+
+Modifications in Version 2.7 by JiPi
+- WAV-File with Junk Chunk 
+- optimise "sampleRead"
+- Filterstring in Loadfile
+- Tooltips of Modeoptions changed
+- Show Errors in Label
+- Infos about bitrate and count of frames
+- function getHeader optimized
+- Add Filter (LP,BP,HP) for Slot1
+- Add MapPath to readAll
+- Errordetect: Wrong bit-depth
+
+V2.7.1 Corrected Bug
+
+V2.7.2 Chamged REGS_Name from "Audio (WAV)" to "Suck Less Audio (WAV)"
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-------------------------------------------------------------------
+
+--]]
+
+version = "Suck Less Audio v2.72 - 3 August 2024"
+
+-------------------------------------------------------------------
+-------------------------------------------------------------------
+
+FuRegisterClass("SuckLessAudio", CT_Modifier, {
+	REGS_Category       = "Modifiers",
+	REGS_OpIconString   = "SLA",
+	REGS_OpDescription  = "Audio (WAV) File Modifier Fuse",
+	REGS_Name           = "Suck Less Audio (WAV)",
+	REGID_DataType      = "Number",
+	REGID_InputDataType = "Number",
+	REG_TimeVariant     = true,			-- required to disable caching of the current time parameter
+	REGB_Temporal       = true,			-- ensures reliability in Resolve 15
+	REGS_Company        = "Pieter Van Houte",
+	REGS_URL            = "http://www.steakunderwater.com",
+	REGS_HelpTopic      = "http://www.steakunderwater.com/wesuckless/viewtopic.php?f=6&t=496",
+	REG_Fuse_NoEdit     = true,
+	REG_Fuse_NoReload   = true,
+	REG_Version	        = 271,
+	})
+
+-------------------------------------------------------------------
+
+FuRegisterClass("SuckLessAudioPoint", CT_Modifier, {
+	REGS_Category       = "Modifiers",
+	REGS_OpIconString   = "SLA",
+	REGS_OpDescription  = "Audio (WAV) File Modifier Fuse",
+	REGS_Name           = "Suck Less Audio (WAV)",
+	REGID_DataType      = "Point",
+	REGID_InputDataType = "Point",
+	REG_TimeVariant     = true,			-- required to disable caching of the current time parameter
+	REGS_Company	    = "Pieter Van Houte",
+	REGS_URL            = "http://www.steakunderwater.com",
+	REGS_HelpTopic      = "http://www.steakunderwater.com/wesuckless/viewtopic.php?f=6&t=496",
+	REG_Fuse_NoEdit     = true,
+	REG_Fuse_NoReload   = true,
+	REG_Version         = 271,
+	})
+
+-------------------------------------------------------------------
+-------------------------------------------------------------------
+
+function Create()
+
+	ModType = ffi.string(self.RegNode.m_ID):sub(6) -- get the ID we were created with, and strip 'Fuse.'
+	
+	InOutType = self:AddInput("Output Type", "OutputType", {
+		LINKID_DataType = "FuID",
+		INPID_InputControl = "MultiButtonIDControl",
+		INPID_DefaultID = "Sample",
+		INP_DoNotifyChanged  = true,
+		MBTNC_StretchToFit = true,
+		MBTNC_ForceButtons = true,
+		{ MBTNC_AddButton = "Sample Values", MBTNCID_AddID = "Sample", MBTNCS_ToolTip = "Outputs the values in the sample file.", },
+		{ MBTNC_AddButton = "Add Offset", MBTNCID_AddID = "Modified", MBTNCS_ToolTip = "Adds the values in the sample file plus offset", },
+		})
+	
+	if ModType == "SuckLessAudio" then
+		InParameter = self:AddInput("Value Input", "ValueInput", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "SliderControl",
+			LINK_Main = 1,
+			})
+	elseif ModType == "SuckLessAudioPoint" then
+		InParameter = self:AddInput("Point Input", "PointInput", {
+			LINKID_DataType = "Point",
+			INPID_InputControl = "OffsetControl",
+			LINK_Main = 1,
+			})
+	end
+	
+	if ModType == "SuckLessAudioPoint" then
+	
+		InSampleSlots = self:AddInput("Sample Slots (Wave Files)", "SampleSlots", {
+			{ MBTNC_AddButton = "1"},
+			{ MBTNC_AddButton = "2"},
+			INP_Default = 0,
+			LINKID_DataType = "Number",
+			INPID_InputControl = "MultiButtonControl",
+			MBTNC_StretchToFit = true,
+			MBTNC_ForceButtons = true,
+			INP_DoNotifyChanged  = true,
+			})	
+			
+	end
+
+	InFile = self:AddInput("Wave File", "WaveFile", {
+		LINKID_DataType = "Text",
+		INPID_InputControl =  "FileControl",
+		FC_ClipBrowse = false,
+		INP_DoNotifyChanged  = true,
+		FCS_FilterString = "WAVE-Files (*.wav)|*.wav|",
+		})
+		
+	if ModType == "SuckLessAudioPoint" then
+		
+		InFile2 = self:AddInput("Wave File Slot 2 (Y)", "WaveFile2", {
+			LINKID_DataType = "Text",
+			INPID_InputControl =  "FileControl",
+			FC_ClipBrowse = false,
+			INP_DoNotifyChanged  = true,
+			INP_Required = false,
+			FCS_FilterString = "WAVE-Files (*.wav)|*.wav|",
+			})	
+			
+	end
+		
+	Reload = self:AddInput("Reload Sample", "ReloadSample", {
+		INPID_InputControl =  "ButtonControl",
+		INP_DoNotifyChanged  = true,
+		INP_External = false,
+		BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
+		})
+		
+	if ModType == "SuckLessAudioPoint" then	
+		
+		InLockSamplesXY = self:AddInput("Lock Sample Channels X/Y", "LockSamplesXY", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "CheckboxControl",
+			INP_Default = 1,
+			INP_DoNotifyChanged = true,
+			})
+	end
+	
+	InChannels = self:AddInput("Select Channel(s)", "SelectChannels", {
+		{ MBTNC_AddButton = "Left", MBTNCID_AddID = "Left", },
+		{ MBTNC_AddButton = "Right", MBTNCID_AddID = "Right", },
+		{ MBTNC_AddButton = "Both", MBTNCID_AddID = "Both", },
+		INPID_DefaultID = "Both",
+		LINKID_DataType = "FuID",
+		INPID_InputControl = "MultiButtonIDControl",
+		MBTNC_StretchToFit = true,
+		MBTNC_ForceButtons = true,
+		IC_Visible = false
+		})
+
+	InSampleStartFrame = self:AddInput("Start Frame (Time Offset)", "SampleStartFrame", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "ScrewControl",
+		INP_Default = 0,
+		INP_MaxScale = 100,
+		INP_Integer = true,
+		})
+		
+	InTimeScale = self:AddInput("Stretch (Time Scale)", "TimeScale", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "ScrewControl",
+		INP_Default = 1,
+		})
+		
+	InProxy = self:AddInput("Proxy (sampling)", "Proxy", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "SliderControl",
+		INP_MinScale = 1,
+		INP_MinAllowed = 1,
+		INP_MaxScale = 100,
+		INP_Default = 25,
+		INP_Integer = true,
+		})
+		
+		
+if ModType == "SuckLessAudioPoint" then		
+	InChannelsY = self:AddInput("Select Channel(s) Y", "SelectChannelsY", {
+		{ MBTNC_AddButton = "Left", MBTNCID_AddID = "Left", },
+		{ MBTNC_AddButton = "Right", MBTNCID_AddID = "Right", },
+		{ MBTNC_AddButton = "Both", MBTNCID_AddID = "Both", },
+		INPID_DefaultID = "Both",
+		LINKID_DataType = "FuID",
+		INPID_InputControl = "MultiButtonIDControl",
+		MBTNC_StretchToFit = true,
+		MBTNC_ForceButtons = true,
+		IC_Visible = false
+		})
+
+	InSampleStartFrameY = self:AddInput("Sample Start Frame (Time Offset) Y", "SampleStartFrameY", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "ScrewControl",
+		INP_Default = 0,
+		INP_MaxScale = 100,
+		INP_Integer = true,
+		})
+		
+	InTimeScaleY = self:AddInput("Sample Stretch (Time Scale) Y", "TimeScale Y", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "ScrewControl",
+		INP_Default = 1,
+		})
+		
+	InProxyY = self:AddInput("Proxy (for sampling) Y", "ProxyY", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "SliderControl",
+		INP_MinScale = 1,
+		INP_MinAllowed = 1,
+		INP_MaxScale = 100,
+		INP_Default = 25,
+		INP_Integer = true,
+		})
+	
+	InLockXY = self:AddInput("Lock X/Y", "LockXY", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "CheckboxControl",
+		INP_Default = 1,
+		INP_DoNotifyChanged = true,
+		})
+			
+	end
+	
+	InMode = self:AddInput("Mode", "Mode", {
+    		{ MBTNCD_ButtonWidth = 0.5, MBTNC_AddButton = "Max", MBTNCID_AddID = "Max", MBTNCS_ToolTip = "The largest absolute value with sign", },
+    		{ MBTNC_AddButton = "Unsigned Max", MBTNCID_AddID = "UnsignedMax", MBTNCS_ToolTip = "The largest absolute value", },
+    		{ MBTNC_AddButton = "Min", MBTNCID_AddID = "Min", MBTNCS_ToolTip = "The lowest absolute value with sign", },
+    		{ MBTNC_AddButton = "Unsigned Min", MBTNCID_AddID = "UnsignedMin", MBTNCS_ToolTip = "The lowest absolute value", },
+    		{ MBTNC_AddButton = "Average", MBTNCID_AddID = "Average", MBTNCS_ToolTip = "Average of all signed values", },
+    		{ MBTNC_AddButton = "Unsigned Average", MBTNCID_AddID = "UnsignedAverage", MBTNCS_ToolTip = "Average of all absolute values", },
+    		{ MBTNC_AddButton = "Median", MBTNCID_AddID = "Median", MBTNCS_ToolTip = "Sorting with sign", },
+    		{ MBTNC_AddButton = "Unsigned Median", MBTNCID_AddID = "UnsignedMedian", MBTNCS_ToolTip = "Sorting with absolute values", },
+    		INPID_DefaultID = "UnsignedMax",
+    		LINKID_DataType = "FuID",
+    		INPID_InputControl = "MultiButtonIDControl",
+    		MBTNC_StretchToFit = true,
+    		MBTNC_ForceButtons = true,
+    		})
+
+	InInvert = self:AddInput("Invert Values", "Invert", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "CheckboxControl",
+		INP_Default = 0,
+		})
+	
+	InFiltersOFF = self:AddInput("", "FiltersOFF", {
+		{ MBTNC_AddButton = "Filter Off", MBTNCID_AddID = "NoFilter", },
+		INPID_DefaultID = "NoFilter",
+		LINKID_DataType = "FuID",
+		INPID_InputControl = "MultiButtonIDControl",
+		ICD_Width = 1.0,
+		MBTNC_StretchToFit = true,
+		MBTNC_ForceButtons = true,
+		INP_DoNotifyChanged  = true,
+		INP_External = false,
+		IC_Visible = true,
+		CC_LabelPosition = "Vertical",
+		})
+
+	InFilters = self:AddInput("", "Filters", {
+		{ MBTNC_AddButton = "20-300Hz", MBTNCID_AddID = "LP", },
+		{ MBTNC_AddButton = "300-3kHz", MBTNCID_AddID = "BP", },
+		{ MBTNC_AddButton = "3-20kHz", MBTNCID_AddID = "HP", },
+		INPID_DefaultID = "NoFilter",
+		LINKID_DataType = "FuID",
+		INPID_InputControl = "MultiButtonIDControl",
+		ICD_Width = 1.0,
+		MBTNC_StretchToFit = true,
+		MBTNC_ForceButtons = true,
+		INP_DoNotifyChanged  = true,
+		INP_External = false,
+		IC_Visible = true,
+		})
+	
+		
+		
+	InAmplitudeScale = self:AddInput("Amplitude Scale", "AmplitudeScale", {
+		LINKID_DataType = "Number",
+		INPID_InputControl = "ScrewControl",
+		INP_Default = 1,
+		INP_MaxScale = 5,
+		})
+		
+	if ModType == "SuckLessAudio" then
+		InAmplitudeOffset = self:AddInput("Amplitude Offset", "AmplitudeOffset", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "ScrewControl",
+			INP_Default = 0,
+			INP_MaxScale = 5,
+			})
+				
+	elseif ModType == "SuckLessAudioPoint" then
+		InAmplitudeOffset = self:AddInput("Amplitude Offset", "AmplitudeOffset", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "ScrewControl",
+			INP_Default = 0.5,
+			INP_MaxScale = 5,
+			})
+ 
+  	InModeY = self:AddInput("Mode Y", "ModeY", {
+      			{ MBTNCD_ButtonWidth = 0.5, MBTNC_AddButton = "Max", MBTNCID_AddID = "Max", },
+			{ MBTNC_AddButton = "Unsigned Max", MBTNCID_AddID = "UnsignedMax", },
+			{ MBTNC_AddButton = "Min", MBTNCID_AddID = "Min", },
+			{ MBTNC_AddButton = "Unsigned Min", MBTNCID_AddID = "UnsignedMin", },
+			{ MBTNC_AddButton = "Average", MBTNCID_AddID = "Average", },
+			{ MBTNC_AddButton = "Unsigned Average", MBTNCID_AddID = "UnsignedAverage", },
+			{ MBTNC_AddButton = "Median", MBTNCID_AddID = "Median", },
+			{ MBTNC_AddButton = "Unsigned Median", MBTNCID_AddID = "UnsignedMedian", },
+			INPID_DefaultID = "Unsigned Max",
+			LINKID_DataType = "FuID",
+			INPID_InputControl = "MultiButtonIDControl",
+			MBTNC_StretchToFit = true,
+			MBTNC_ForceButtons = true,
+			})
+		
+			
+		InInvertY = self:AddInput("Invert Values Y", "InvertY", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "CheckboxControl",
+			INP_Default = 0,
+			})
+
+		InAmplitudeScaleY = self:AddInput("Amplitude Scale Y", "AmplitudeScaleY", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "ScrewControl",
+			INP_Default = 1,
+			INP_MaxScale = 5,
+			})
+		
+		InAmplitudeOffsetY = self:AddInput("Amplitude Offset Y", "AmplitudeOffsetY", {
+			LINKID_DataType = "Number",
+			INPID_InputControl = "ScrewControl",
+			INP_Default = 0.5,
+			INP_MaxScale = 5,
+			})
+	end
+		
+	Sep3 = self:AddInput(string.rep("_", 10).."Slot1"..string.rep("_", 15), "Separator3", {
+    		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		INP_External = false,
+		INP_Passive = true,
+		})
+  
+	InFileName = self:AddInput("No Audio loaded", "FileNameSlot1", {
+		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		LBLC_LabelColor = 2,
+		INP_External = false,
+		INP_Passive = true,
+		ICD_Width = 1,
+		})
+  
+	InDataSlot1 = self:AddInput("No Data", "DataSlot1", {
+		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		INP_External = false,
+		INP_Passive = true,
+		ICD_Width = 1,
+		})	
+
+
+	if ModType == "SuckLessAudioPoint" then
+		Sep4 = self:AddInput(string.rep("_", 10).."Slot2"..string.rep("_", 15), "Separator4", {
+		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		INP_External = false,
+		INP_Passive = true,
+		})
+  
+	InFileName2 = self:AddInput("No Audio loaded", "FileNameSlot2", {
+		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		LBLC_LabelColor = 2,
+		INP_External = false,
+		INP_Passive = true,
+		ICD_Width = 1,
+		})
+    
+	InDataSlot2 = self:AddInput("No Data", "DataSlot2", {
+		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		INP_External = false,
+		INP_Passive = true,
+		ICD_Width = 1,
+		})  		
+	end		
+	--InWarning:SetAttrs({LINKS_Name = fn_str, LBLC_LabelColor = 1,})
+		
+	InLabel = self:AddInput(version, "version", {
+		LINKID_DataType = "Text",
+		INPID_InputControl = "LabelControl",
+		INP_External = false,
+		INP_Passive = true,
+		})
+	
+	if ModType == "SuckLessAudio" then
+		OutValue = self:AddOutput("Output", "Output", {
+			LINKID_DataType = "Number",
+			LINK_Main = 1,
+			})
+	elseif ModType == "SuckLessAudioPoint" then
+		OutValue = self:AddOutput("Output", "Output", {
+			LINKID_DataType = "Point",
+			LINK_Main = 1,
+			})
+	end
+end
+
+-------------------------------------------------------------------
+function NotifyChanged(inp, param, time)
+	if inp ~= nil and param ~= nil then
+		if inp == InOutType then
+			if param.Value == "Sample" then
+				InParameter:SetAttrs({IC_Visible = false})
+			elseif param.Value == "Modified" then
+				InParameter:SetAttrs({IC_Visible = true})
+			end
+		end
+		
+		if inp == InFile then	
+			local filedata = readAll(param.Value)
+			if not filedata then
+				return
+			else
+				local bitrate, temp_channel = getHeader(filedata, 104)       
+  				    
+				if temp_channel == "2" then
+					InChannels:SetAttrs({IC_Visible = true})
+				else
+					InChannels:SetAttrs({IC_Visible = false})
+				end
+			end
+		end
+		
+		if inp == InLockXY then
+			if param.Value == 1 then
+				InAmplitudeScaleY:SetAttrs({IC_Visible = false})
+				InAmplitudeScale:SetAttrs({ICS_Name = "Amplitude Scale"})
+				InAmplitudeOffsetY:SetAttrs({IC_Visible = false})
+				InAmplitudeOffset:SetAttrs({ICS_Name = "Amplitude Offset"})
+				InInvertY:SetAttrs({IC_Visible = false})
+				InInvert:SetAttrs({ICS_Name = "Invert Values"})
+				InModeY:SetAttrs({IC_Visible = false})
+				InMode:SetAttrs({ICS_Name = "Mode"})
+--				InSelectSampleSlotY:SetAttrs({IC_Visible = false})
+			elseif param.Value == 0 then
+				InAmplitudeScaleY:SetAttrs({IC_Visible = true})
+				InAmplitudeScale:SetAttrs({ICS_Name = "Amplitude Scale X"})
+				InAmplitudeOffsetY:SetAttrs({IC_Visible = true})
+				InAmplitudeOffset:SetAttrs({ICS_Name = "Amplitude Offset X"})
+				InInvertY:SetAttrs({IC_Visible = true})
+				InInvert:SetAttrs({ICS_Name = "Invert Values X"})
+				InModeY:SetAttrs({IC_Visible = true})
+				InMode:SetAttrs({ICS_Name = "Mode X"})
+--				InSelectSampleSlotY:SetAttrs({IC_Visible = true})
+			end
+		end
+		if inp == InSampleSlots then
+			if param.Value == 0 then
+				InFile2:SetAttrs({IC_Visible = false})
+				InFile2:SetAttrs({INP_Required = false})
+				InFile:SetAttrs({ICS_Name = "Wave File"})
+				Reload:SetAttrs({ICS_Name = "Reload Sample"})
+--				InSelectSampleSlot:SetAttrs({IC_Visible = false})
+--				InSelectSampleSlotY:SetAttrs({IC_Visible = false})
+			elseif param.Value == 1 then
+				InFile2:SetAttrs({IC_Visible = true})
+				InFile2:SetAttrs({INP_Required = true})
+				InFile:SetAttrs({ICS_Name = "Wave File Slot 1 (X)"})
+				Reload:SetAttrs({ICS_Name = "Reload Samples"})
+--				InSelectSampleSlot:SetAttrs({IC_Visible = true})
+--				InSelectSampleSlotY:SetAttrs({IC_Visible = true})
+			end
+		end
+		if inp == InLockSamplesXY then	
+			if param.Value == 1 then
+				InChannelsY:SetAttrs({IC_Visible = false})
+				InSampleStartFrameY:SetAttrs({IC_Visible = false})
+				InTimeScaleY:SetAttrs({IC_Visible = false})
+				InProxyY:SetAttrs({IC_Visible = false})
+				InChannels:SetAttrs({ICS_Name = "Select Channel(s)"})
+				InSampleStartFrame:SetAttrs({ICS_Name = "Sample Start Frame (Time Offset)"})
+				InTimeScale:SetAttrs({ICS_Name = "Sample Stretch (Time Scale)"})
+				InProxy:SetAttrs({ICS_Name = "Proxy (for sampling)"})
+			elseif param.Value == 0 then
+				InChannelsY:SetAttrs({IC_Visible = true})
+				InSampleStartFrameY:SetAttrs({IC_Visible = true})
+				InTimeScaleY:SetAttrs({IC_Visible = true})
+				InProxyY:SetAttrs({IC_Visible = true})
+				InChannels:SetAttrs({ICS_Name = "Select Channel(s) X"})
+				InSampleStartFrame:SetAttrs({ICS_Name = "Sample Start Frame (Time Offset) X"})
+				InTimeScale:SetAttrs({ICS_Name = "Sample Stretch (Time Scale) X"})
+				InProxy:SetAttrs({ICS_Name = "Proxy (for sampling) X"})
+			end
+		end
+		
+		if inp == InFiltersOFF then
+			if param.Value == "NoFilter" then
+				InFilters:SetSource(Text("NoFilter"),time)
+			end
+		end
+		if inp == InFilters then
+			if param.Value == "LP" or param.Value == "BP" or param.Value == "HP" then
+			InFiltersOFF:SetSource(Text("Filter"),time)
+			end
+		end
+	end
+end
+
+-------------------------------------------------------------------
+-- Get the base filename from a filepath
+function GetFilename(mediaDirName)
+    local path, basename = string.match(mediaDirName, "^(.+[/\\])(.+)")
+    return basename
+end
+
+-- function for reading in a binary file
+function readAll(file)
+    file = self.Comp:MapPath(file)
+    local f = io.open(file, "rb")
+    if not f then
+        if file ~= "" then
+            InDataSlot1:SetAttrs({LINKS_Name = "Special Characters in Filename", LBLC_LabelColor = 2})
+        end
+        return nil
+    end
+
+    local content = f:read("*all")
+    f:close()
+    return content
+end
+
+-- function for creating the header table, returns a table
+function getHeader(data, length)
+    local header = {}
+    local bitrate
+    local channels
+
+    for pos = 1, length do
+        b = string.byte(data, pos) -- create a string one byte long
+        table.insert(header, string.format("%i", b))
+    end
+
+    --get some vital information out of the header, to do some form of file format checking
+    if header[3] == header[4] and header[17] == "16" then
+        bitrate = tonumber(header[26]) * 256 + tonumber(header[25])
+        channels = header[23]
+        bitdepth = tonumber(header[35])
+    else
+        data_pos = string.find(data, "data")
+
+        if header[13] == "74" and data_pos ~= nil then
+            data_pos = data_pos + 8 -- 4 bytes "data" und 4 byte Size
+            bitrate = tonumber(header[62]) * 256 + tonumber(header[61])
+            channels = header[59]
+            bitdepth = tonumber(header[71])
+        else
+            --print ("Unsupported file type.\nPlease only load of type WAV (Microsoft) signed 16-bit PCM.")
+            InDataSlot1:SetAttrs({LINKS_Name = "Unsupported file type", LBLC_LabelColor = 2})
+            return nil
+        end
+    end
+
+    if bitdepth ~= 16 then
+        --print ("Wrong bit-depth - Please only load of type WAV (Microsoft) signed 16-bit PCM.")
+        InDataSlot1:SetAttrs({LINKS_Name = "Wrong bit-depth - only 16bit PCM", LBLC_LabelColor = 2})
+        return nil
+    end
+    return bitrate, channels
+end
+
+--function to read a pair of bytes and put them together to form a 16 bit two's complement sample, then return the result converted to decimal numbers
+function sampleRead(data, pointer)
+    bl = string.byte(data, pointer) -- create a string one byte long
+    bh = string.byte(data, pointer + 1) -- create a string one byte long
+    if bl == nil or bh == nil then
+        bl = 0
+        bh = 0
+    end
+    number_int = tonumber(bh) * 256 + tonumber(bl)
+    if (number_int > 32767) then -- basically, if the bytelong binary starts with 1
+        sample = number_int - 65536
+    else
+        sample = number_int
+    end
+    return sample
+end
+
+-- ###############################################################################################################################################################
+-- function for reading all the required sample data for a given frame, taking into account bitrate and channels (mono,stereo) and returning the result in a table
+function getSampleData(filedata, channelchoice, framerate, timescale, currenttime, startframe, proxy, channels, bitrate)
+    local data_pos = 45 -- Start der Sampledaten im File, bei 44,1kHz Standardwave = 45, bei Junkfiles (48kHz) variable
+
+    local sampleoffset
+    local samplestep
+    local sampleunit
+
+    if channelchoice == "Right" then
+        sampleoffset = 2
+        samplestep = 4
+        sampleunit = 1
+    elseif channelchoice == "Left" then
+        sampleoffset = 0
+        samplestep = 4
+        sampleunit = 1
+    else
+        sampleoffset = 0
+        samplestep = 2 -- samplestep is never smaller than 2 (2 times 8 bit is 16 bit)
+        sampleunit = 2
+    end
+
+    -- Initialize tables needed for WAVE data.
+    local sampledata = {}
+
+    if channels == "1" then -- if this is a mono file
+        sampleoffset = 0
+        samplestep = 2
+        sampleunit = 1
+    end
+
+    local spf = math.floor(bitrate / framerate / timescale * sampleunit) -- calculate the amount of samples per frame
+
+    for pos = (data_pos + sampleoffset) + ((currenttime - startframe) * spf * samplestep), ((data_pos + sampleoffset) +
+        ((currenttime - startframe) + 1) * spf * samplestep) -
+        samplestep, samplestep * proxy do
+        if pos > data_pos - 1 then
+            local deb_werte = {}
+
+            for i = 0, sampleunit, samplestep do -- make sure to read from all channels per step
+                table.insert(sampledata, sampleRead(filedata, pos + i))
+                i = i + 1
+            end
+        else
+            --print ("No Data")
+            table.insert(sampledata, 0)
+        end
+    end
+
+    return sampledata
+end
+-- ###############################################################################################
+
+-- function for returning the signed maximum of a table
+function getMax(data)
+    local max = 0
+    for i, v in ipairs(data) do
+        if math.abs(v) > math.abs(max) then
+            max = v
+        end
+    end
+    return max
+end
+
+-- function for returning the unsigned maximum of a table
+function getUnsignedMax(data)
+    local max = 0
+    for i, v in ipairs(data) do
+        max = math.max(max, math.abs(v))
+    end
+    return max
+end
+
+-- function for returning the signed minimum of a table
+function getMin(data)
+    local min = 32767
+    for i, v in ipairs(data) do
+        if math.abs(v) < math.abs(min) then
+            min = v
+        end
+    end
+    return min
+end
+
+-- function for returning the unsigned minimum of a table
+function getUnsignedMin(data)
+    local min = 32767
+    for i, v in ipairs(data) do
+        min = math.min(min, math.abs(v))
+    end
+    return min
+end
+
+-- function for returning the average of a table
+function getAverage(data)
+    local sum = 0
+    local indices = 0
+    for i, v in ipairs(data) do
+        sum = sum + v
+        indices = indices + 1
+    end
+    return sum / indices
+end
+
+-- function for returning the unsigned average of a table
+function getUnsignedAverage(data)
+    local sum = 0
+    local indices = 0
+    for i, v in ipairs(data) do
+        sum = sum + math.abs(v)
+        indices = indices + 1
+    end
+    return sum / indices
+end
+
+-- function for returning the median of a table
+function getMedian(data)
+    table.sort(data)
+    if #data % 2 == 0 then
+        return (data[#data / 2] + data[#data / 2 + 1]) / 2
+    end
+    return data[math.ceil(#data / 2)]
+end
+
+-- function for returning the unsigned median of a table
+function getUnsignedMedian(data)
+    local unsdata = {}
+    for i, v in ipairs(data) do
+        unsdata[i] = math.abs(data[i])
+    end
+    table.sort(unsdata)
+    if #unsdata % 2 == 0 then
+        return (unsdata[#unsdata / 2] + unsdata[#unsdata / 2 + 1]) / 2
+    end
+    return unsdata[math.ceil(#unsdata / 2)]
+end
+
+---------------------------- Filterparameter ------------------------------
+
+ACoef1 = {
+    0.00092507968628719654,
+    0.00370031874514878620,
+    0.00555047811772317950,
+    0.00370031874514878620,
+    0.00092507968628719654
+}
+
+BCoef1 = {
+    1.00000000000000000000,
+    -2.97684433369673140000,
+    3.42230952937763750000,
+    -1.78610660021803840000,
+    0.35557738234440961000
+}
+ACoef_BP1 = {
+    0.00781957742552762300,
+    0.00000000000000000000,
+    -0.03127830970211049200,
+    0.00000000000000000000,
+    0.04691746455316574100,
+    0.00000000000000000000,
+    -0.03127830970211049200,
+    0.00000000000000000000,
+    0.00781957742552762300
+}
+
+BCoef_BP1 = {
+    1.00000000000000000000,
+    -5.97101379236142990000,
+    15.76907227497633100000,
+    -24.15665093721574100000,
+    23.54903261576012600000,
+    -14.97929609656732600000,
+    6.06950005378504990000,
+    -1.43110204858300350000,
+    0.15046445953320678000
+}
+ACoef_HP1 = {
+    0.34680298666450599000,
+    -1.38721194665802390000,
+    2.08081791998703600000,
+    -1.38721194665802390000,
+    0.34680298666450599000
+}
+
+BCoef_HP1 = {
+    1.00000000000000000000,
+    -1.96842778703884580000,
+    1.73586070935118020000,
+    -0.72447082960564324000,
+    0.12038959992316768000
+}
+
+function iir(data, Aparam, Bparam)
+    local datafilter = {}
+    local order = #Aparam
+    local x = {}
+    local y = {}
+
+    for i = 1, #Aparam, 1 do
+        x[i] = 0
+        y[i] = 0
+    end
+
+    for i = 1, #data, 1 do
+        --shift the old samples
+        for n = order, 2, -1 do
+            x[n] = x[n - 1]
+            y[n] = y[n - 1]
+        end
+
+        --Calculate the new output
+        x[1] = data[i]
+        y[1] = Aparam[1] * x[1]
+
+        for n = 2, order, 1 do
+            y[1] = y[1] + Aparam[n] * x[n] - Bparam[n] * y[n]
+        end
+        table.insert(datafilter, y[1])
+    end
+    return datafilter
+end
+
+-------------------------------------------------------------------
+-------------------------------------------------------------------
+
+function Process(req)
+    -- VARIABLES
+
+    local iotype = InOutType:GetValue(req).Value
+
+    --------------------------------------
+    --sample routing settings
+    --------------------------------------
+    local lockxy = 1
+    local slots = 0
+    local locksamplesxy = 1
+
+    --------------------------------------
+    --sample 1 processing settings
+    --------------------------------------
+    local infile = InFile:GetValue(req).Value
+    local channelchoice = InChannels:GetValue(req).Value
+    local startframe = InSampleStartFrame:GetValue(req).Value
+    local timescale = InTimeScale:GetValue(req).Value
+    local proxy = InProxy:GetValue(req).Value
+    --------------------------------------
+    --sample 2 processing settings
+    --------------------------------------
+    local infile2 = infile
+    local channelchoice2 = channelchoice
+    local startframe2 = startframe
+    local timescale2 = timescale
+    local proxy2 = proxy
+    --------------------------------------
+
+    local mode = InMode:GetValue(req).Value
+    local scale = InAmplitudeScale:GetValue(req).Value
+    local offset = InAmplitudeOffset:GetValue(req).Value
+    local invert = InInvert:GetValue(req).Value
+    local inv = 1
+
+    if invert == 1 then
+        inv = -1
+    end
+
+    local modey = mode
+    local scaley = scale
+    local offsety = offset
+    local inverty = invert
+
+    local invy = 1 -- invert multiplier
+
+    if ModType == "SuckLessAudioPoint" then
+        --------------------------------------
+        --routing settings
+        --------------------------------------
+        slots = InSampleSlots:GetValue(req).Value
+        locksamplesxy = InLockSamplesXY:GetValue(req).Value
+        lockxy = InLockXY:GetValue(req).Value
+        --------------------------------------
+        if slots == 1 then
+            infile2 = InFile2:GetValue(req).Value
+        end
+        if locksamplesxy == 0 then
+            channelchoice2 = InChannelsY:GetValue(req).Value
+            startframe2 = InSampleStartFrameY:GetValue(req).Value
+            timescale2 = InTimeScaleY:GetValue(req).Value
+            proxy2 = InProxyY:GetValue(req).Value
+        end
+        if lockxy == 0 then
+            modey = InModeY:GetValue(req).Value
+            scaley = InAmplitudeScaleY:GetValue(req).Value
+            offsety = InAmplitudeOffsetY:GetValue(req).Value
+            inverty = InInvertY:GetValue(req).Value
+
+            if inverty == 1 then
+                invy = -1
+            end
+        end
+    end
+
+    local currenttime = req.Time -- get the current frame of the comp
+    local framerate = self.Comp:GetPrefs("Comp.FrameFormat.Rate") -- get the frame rate of the comp set in the preferences
+
+    if not filedata or infiledup ~= infile then -- got to load some audio files to play with :)
+        --		print ("loading")
+        filedata = readAll(infile)
+
+        if filedata then
+            bitrate, channels = getHeader(filedata, 104) -- Org 44 - Junk 104
+
+            if bitrate == nil then
+                return
+            end
+        end
+        if not filedata and slots == 0 then
+            --print("Please load an audio file.")
+            InFileName:SetAttrs({LINKS_Name = "Please load WAVE file", LBLC_LabelColor = 2})
+            infile = ""
+            return
+        elseif not filedata and slots == 1 then
+            --print("Please load an audio file in Slot 1.")
+            InFileName:SetAttrs({LINKS_Name = "Please load WAVE file in Slot 1", LBLC_LabelColor = 2})
+            infile = ""
+            return
+        end
+        -- Audiofile successfull loaded
+        infiledup = infile
+
+        --bitrate, channels = getHeader(filedata, 104) -- Org 44 - Junk 104
+
+        InFileName:SetAttrs({LINKS_Name = GetFilename(infiledup), LBLC_LabelColor = 4})
+
+        frame_number = ((#filedata / 2 / channels) / bitrate) * self.Comp:GetPrefs("Comp.FrameFormat.Rate")
+        fn_str = string.format("Audio(%g kHz) %d frames", bitrate / 1000, frame_number)
+        --fn_str = string.format("FD: %d - Ch: %d - BR: %d", #filedata, channels, bitrate)
+        InDataSlot1:SetAttrs({LINKS_Name = fn_str, LBLC_LabelColor = 4})
+    end
+
+    if slots == 1 then
+        if not filedata2 or infiledup2 ~= infile2 then
+            --		print ("loading")
+            filedata2 = readAll(infile2)
+            infiledup2 = infile2
+            if not filedata2 then
+                --print("Please load an audio file in Slot 2.")
+                IInFileName2:SetAttrs({LINKS_Name = "Please load WAVE file in Slot 2", LBLC_LabelColor = 2})
+                return
+            end
+        end
+        -- Audiofile successfull loaded
+        bitrate2, channels2 = getHeader(filedata, 104) -- Org 44 - Junk 104
+
+        InFileName2:SetAttrs({LINKS_Name = GetFilename(infiledup2), LBLC_LabelColor = 1})
+
+        frame_number = ((#filedata2 / 2 / channels2) / bitrate2) * self.Comp:GetPrefs("Comp.FrameFormat.Rate")
+        fn_str = string.format("Audio(%g kHz) %d frames", bitrate / 1000, frame_number)
+        --fn_str = string.format("FD: %d - Ch: %d - BR: %d", #filedata, channels, bitrate)
+        InDataSlot2:SetAttrs({LINKS_Name = fn_str})
+    end
+
+    --------------------------------------
+    --sample 1 processing
+    --------------------------------------
+
+    local sampledata = {}
+    local sampledata2 = {}
+
+    sampledata =
+        getSampleData(filedata, channelchoice, framerate, timescale, currenttime, startframe, proxy, channels, bitrate)
+    if sampledata == nil then
+        Print("No Data 2")
+        return
+    end
+
+    if
+        slots == 0 and locksamplesxy == 0 and (channelchoice ~= channelchoice2 or startframe ~= startframe2 or timescale ~= timescale2 or proxy ~= proxy2)
+     then
+        sampledata2 = getSampleData(filedata, channelchoice2, framerate, timescale2, currenttime, startframe2, proxy2, channels,  bitrate)
+        if sampledata2 == nil then
+            Print("No Data 3")
+            return
+        end
+    elseif slots == 1 then
+        sampledata2 = getSampleData(filedata2, channelchoice2, framerate, timescale2, currenttime, startframe2, proxy2, channels2, bitrate2)
+        if sampledata2 == nil then
+            Print("No Data 4")
+            return
+        end
+    elseif slots == 0 then
+        sampledata2 = sampledata
+    end
+
+    -- Filter
+
+    if InFilters:GetValue(req).Value == "LP" then
+        sampledata = iir(sampledata, ACoef1, BCoef1)
+    elseif InFilters:GetValue(req).Value == "BP" then
+        sampledata = iir(sampledata, ACoef_BP1, BCoef_BP1)
+    elseif InFilters:GetValue(req).Value == "HP" then
+        sampledata = iir(sampledata, ACoef_HP1, BCoef_HP1)
+    end
+
+    if mode == "Max" then
+        amp = offset + (inv * getMax(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "UnsignedMax" then
+        amp = offset + (inv * getUnsignedMax(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "Min" then
+        amp = offset + (inv * getMin(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "UnsignedMin" then
+        amp = offset + (inv * getUnsignedMin(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "Average" then
+        amp = offset + (inv * getAverage(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "UnsignedAverage" then
+        amp = offset + (inv * getUnsignedAverage(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "Median" then
+        amp = offset + (inv * getMedian(sampledata) / 32767) * scale
+        ampy = amp
+    elseif mode == "UnsignedMedian" then
+        amp = offset + (inv * getUnsignedMedian(sampledata) / 32767) * scale
+        ampy = amp
+    end
+
+    if sampledata ~= sampledata2 or (lockxy == 0 and (mode ~= modey or scale ~= scaley or offset ~= offsety or invert ~= inverty))
+     then
+        if modey == "Max" then
+            ampy = offsety + (invy * getMax(sampledata2) / 32767) * scaley
+        elseif modey == "UnsignedMax" then
+            ampy = offsety + (invy * getUnsignedMax(sampledata2) / 32767) * scaley
+        elseif modey == "Min" then
+            ampy = offsety + (invy * getMin(sampledata2) / 32767) * scaley
+        elseif modey == "UnsignedMin" then
+            ampy = offsety + (invy * getUnsignedMin(sampledata2) / 32767) * scaley
+        elseif modey == "Average" then
+            ampy = offsety + (invy * getAverage(sampledata2) / 32767) * scaley
+        elseif modey == "UnsignedAverage" then
+            ampy = offsety + (invy * getUnsignedAverage(sampledata2) / 32767) * scaley
+        elseif modey == "Median" then
+            ampy = offsety + (invy * getMedian(sampledata2) / 32767) * scaley
+        elseif modey == "UnsignedMedian" then
+            ampy = offsety + (invy * getUnsignedMedian(sampledata2) / 32767) * scaley
+        end
+    end
+
+    if ModType == "SuckLessAudio" then
+        if iotype == "Sample" then
+            OutValue:Set(req, Number(amp))
+        elseif iotype == "Modified" then
+            amp = InParameter:GetValue(req).Value + amp
+            OutValue:Set(req, Number(amp))
+        end
+    elseif ModType == "SuckLessAudioPoint" then
+        if iotype == "Sample" then
+            OutValue:Set(req, Point(amp, ampy))
+        elseif iotype == "Modified" then
+            amp = InParameter:GetValue(req).X + amp
+            ampy = InParameter:GetValue(req).Y + ampy
+            OutValue:Set(req, Point(amp, ampy))
+        end
+    end
+end
