@@ -36,6 +36,10 @@ Version v2.72 dated 2024-08-03, fetched on 2026-05-30
 To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 
+To use this in DaVinci Fusion:
+- Right click on a parameter > Modify With > Modifiers > SuckLessAudio
+- Parameters can be either numbers (1 value) or points (2 values)
+
 -------------------------------------------------------------------
 
 --]]
