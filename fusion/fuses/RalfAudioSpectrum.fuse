@@ -1,0 +1,198 @@
+--
+-- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
+-- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
+-- 
+
+FuRegisterClass("RalfAudioSpectrum", CT_Tool, {
+    REGS_Name               = "Ralf Audio Spectrum",
+    REGS_Category           = "Fuses",
+    REGS_OpIconString       = "AWW",
+    REGS_OpDescription      = "Ralf Audio Spectrum",
+    REG_Fuse_NoEdit         = false,
+    REG_Fuse_NoReload       = false,
+    REG_Source_GlobalCtrls  = true,
+    REG_Source_SizeCtrls    = true,
+    REG_Source_AspectCtrls  = true,
+    REG_TimeVariant         = true,
+    REG_NoPreCalcProcess    = true,  -- call Process for precalc requests (instead of PreCalcProcess)
+    })
+
+
+-- ///////////// GLOBALS ///////////////
+-- Globals persist between Process calls once the Fuse plugin is loaded.
+-- Exhausting memory will likely crash DaVinci.
+
+_loadedFileName = ""
+_loadedFileStatus = ""
+_loadedContent = nil
+
+-- /////////////////////////////////////
+
+
+function Create()
+    print("@@ Create")
+
+    _inWavFile = self:AddInput("WAV File", "WavFile", {
+        LINKID_DataType = "Text",
+        INPID_InputControl =  "FileControl",
+        FC_ClipBrowse = false,
+        INP_DoNotifyChanged  = true,
+        INP_External = false,
+        FCS_FilterString = "WAV-Files (*.wav)|*.wav|"
+    })
+
+    _inReload = self:AddInput("Reload Sample", "ReloadSample", {
+        INPID_InputControl =  "ButtonControl",
+        INP_DoNotifyChanged  = true,
+        INP_External = false,
+        BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
+    })
+
+    -- INFO printfs
+    self:AddInput(string.rep("_", 52), "InfoSeparator", {
+        LINKID_DataType = "Text",
+        INPID_InputControl = "LabelControl",
+        INP_External = false,
+        INP_Passive = true,
+    })
+
+    _inInfoFileName = self:AddInput("No Audio loaded", "InfoFileName", {
+        LINKID_DataType    = "Text",
+        INPID_InputControl = "LabelControl",
+        INP_External       = false,
+        INP_Passive        = true,
+        ICD_Width          = 1,
+    })
+
+    _inInfoFileStatus = self:AddInput("Please select a file first", "InfoFileStatus", {
+        LINKID_DataType    = "Text",
+        INPID_InputControl = "LabelControl",
+        INP_External       = false,
+        INP_Passive        = true,
+        ICD_Width          = 1,
+    })
+
+    --
+    -- AddOutput("User Visible Name", "InternalScriptName")
+    -- It seems the first one is shown in menus, the second one in e.g. expressions.
+    --
+
+    _inImgForeground = self:AddInput("Foreground", "Foreground", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+    })
+
+    _outImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+    })
+
+    _outVuMeter0 = self:AddOutput("VuMeter0", "VuMeter0", {
+        LINKID_DataType = "Number",
+    })
+
+end
+
+function NotifyChanged(inp, param, time)
+    print("@@ NotifyChanged")
+
+    if inp ~= nil and param ~= nil then
+        if inp == _inWavFile then
+            readGlobalFile(param.Value)
+        end
+    end
+
+end
+
+function PreCalcProcess(req)
+    print("@@ PreCalcProcess")
+    local imgFg = _inImgForeground:GetValue(req)
+
+    -- Reference: https://www.steakunderwater.com/VFXPedia/96.0.243.189/indexfbdf.html?title=Eyeon:Script/Reference/Applications/Fuse/Classes/ScriptOperator/AddOutput
+    -- Any output that is not the main image should have a value set in PreCalcProcess
+    -- to ensure connected tools do not fail before Process() is called.
+    -- PreCalcProcess is called before each Process call.
+
+    _outImage:Set(req, imgFg)
+    _outVuMeter0:Set(req, Number(0))
+end
+
+function Process(req)
+    local imgFg = _inImgForeground:GetValue(req)
+
+    -- get the frame rate of the comp set in the preferences
+    local frameRate = self.Comp:GetPrefs("Comp.FrameFormat.Rate")
+    local frameIndex = req.Time
+    if frameIndex == nil then
+        _outImage:Set(req, imgFg)
+        return
+    end
+
+    -- read params locally
+    local infile = _inWavFile:GetValue(req).Value
+    if _loadedContent == nil then
+        readGlobalFile(infile)
+    end
+
+    if _loadedContent == nil then
+        print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", NO CONTENT for " .. infile )
+    else
+        print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", file " .. _loadedFileName, ", content " .. #_loadedContent )
+    end
+    
+    _outImage:Set(req, imgFg)
+end
+
+function readGlobalFile(filename)
+    local data, err = _readFile(filename)
+    if data ~= nil then
+        _loadedContent = data
+        _loadedFileStatus = "Loaded " .. #_loadedContent .. " bytes"
+        _loadedFileName = filename
+        _inInfoFileName:SetAttrs({
+            LINKS_Name = getFilename(_loadedFileName),
+            LBLC_LabelColor = 3,
+        })
+        _inInfoFileStatus:SetAttrs({
+            LINKS_Name = _loadedFileStatus,
+            LBLC_LabelColor = 3,
+        })
+    elseif err ~= nil then
+        _loadedContent = nil
+        _loadedFileStatus = err
+        _loadedFileName = ""
+        _inInfoFileName:SetAttrs({
+            LINKS_Name = "No Audio loaded",
+            LBLC_LabelColor = 3,
+        })
+        _inInfoFileStatus:SetAttrs({
+            LINKS_Name = _loadedFileStatus,
+            LBLC_LabelColor = 3,
+        })
+    end
+end
+
+function _readFile(filename)
+    -- Comp:MapPath is apparently used to resolve Project Settings > Path Mapping.
+    local filepath = self.Comp:MapPath(filename)
+    print("@@ _readFile " .. filepath)
+    local file, err = io.open(filepath, "rb")
+    if not file then
+        return nil, "Could not open file: " .. tostring(err)
+    end
+
+    local riff_data = file:read(12)
+    if not riff_data or #riff_data < 12 then
+        file:close()
+        return nil, "File too small"
+    end
+
+    file:close()
+    return riff_data
+end
+
+-- Get the base filename from a filepath
+function getFilename(mediaDirName)
+    local path, basename = string.match(mediaDirName, "^(.+[/\\])(.+)")
+    return basename
+end
