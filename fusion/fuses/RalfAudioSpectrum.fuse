@@ -5,10 +5,91 @@
 
 local ffi = require("ffi")
 
+-- FuRegisterClass("RalfAudioVuMeter", CT_SourceTool, {
+--     REGS_Name               = "Ralf Audio Vu Meter",
+--     REGS_OpDescription      = "Ralf Audio Meter",
+-- 	REGS_Category = "Fuses",
+-- 	REGS_OpIconString = "fSc",
+	
+-- 	REG_Source_GlobalCtrls = true,
+-- 	REG_Source_SizeCtrls = true,
+-- 	REG_Source_AspectCtrls = true,
+-- 	REG_Source_DepthCtrls = true,
+	
+-- 	REG_TimeVariant = true,
+-- 	})
+
+
+-- function Create()
+-- end
+
+-- function Process(req) 
+-- 	local realwidth = Width;
+-- 	local realheight = Height;
+	
+-- 	-- We'll handle proxy ourselves
+-- 	Width = Width / Scale
+-- 	Height = Height / Scale
+-- 	Scale = 1
+	
+-- 	local imgattrs = {
+-- 		IMG_Document = self.Comp,
+-- 		{ IMG_Channel = "Red", },
+-- 		{ IMG_Channel = "Green", },
+-- 		{ IMG_Channel = "Blue", },
+-- 		{ IMG_Channel = "Alpha", },
+-- 		IMG_Width = Width,
+-- 		IMG_Height = Height,
+-- 		IMG_XScale = XAspect,
+-- 		IMG_YScale = YAspect,
+-- 		IMAT_OriginalWidth = realwidth,
+-- 		IMAT_OriginalHeight = realheight,
+-- 		IMG_Quality = not req:IsQuick(),
+-- 		IMG_MotionBlurQuality = not req:IsNoMotionBlur(),
+-- 		}
+	
+-- 	if not req:IsStampOnly() then
+-- 		imgattrs.IMG_ProxyScale = 1
+-- 	end
+	
+-- 	if SourceDepth ~= 0 then
+-- 		imgattrs.IMG_Depth = SourceDepth
+-- 	end
+	
+	
+-- 	local outImg = Image(imgattrs)
+	
+-- 	local random = math.random -- faster in a local
+	
+-- 	local p = Pixel({A=1})
+	
+-- 	-- for y=0,Height-1 do
+-- 	-- 	if self.Status ~= "OK" then break end
+		
+-- 	-- 	for x=0,Width-1 do
+-- 	-- 		p.R = random()
+-- 	-- 		p.G = random()
+-- 	-- 		p.B = random()
+-- 	-- 		outImg:SetPixel(x,y, p)
+-- 	-- 	end
+-- 	-- end
+
+--     local imgPxW = Width
+--     local imgPxH = Height
+--     local y = math.floor(imgPxH / 2)
+--     local p = Pixel({R=1, G=1, B=1, A=1})
+--     for x = 0, imgPxW - 1 do
+--         outImg:SetPixel(x, y, p)
+--     end
+    
+-- 	OutImage:Set(req, outImg)
+	
+-- end
+
 FuRegisterClass("RalfAudioSpectrum", CT_Tool, {
     REGS_Name               = "Ralf Audio Spectrum",
     REGS_Category           = "Fuses",
-    REGS_OpIconString       = "AWW",
+    REGS_OpIconString       = "fSc",
     REGS_OpDescription      = "Ralf Audio Spectrum",
     REG_OpNoMask            = true,
     REG_Fuse_NoEdit         = false,
@@ -18,154 +99,8 @@ FuRegisterClass("RalfAudioSpectrum", CT_Tool, {
     })
 
 
--- ///// STRUCTS
-
--- https://en.wikipedia.org/wiki/WAV#WAV_file_header
-ffi.cdef[[
-    // Struct of the outer RIFF chunk
-    typedef struct {
-        char     chunkID[4];    // "RIFF"
-        uint32_t chunkSize;     // File size minus 8
-        char     format[4];     // "WAVE"
-    } WAV_RIFF_Header;
-
-    // Struct of the first mandatory fmt chunk
-    typedef struct {
-        char     chunkID[4];    // "fmt "
-        uint32_t chunkSize;
-        uint16_t audioFormat;   // 1 = PCM
-        uint16_t numChannels;
-        uint32_t sampleRate;
-        uint32_t bytePerSec;    // sampleRate * bytesPerBlock
-        uint16_t bytesPerBlock; // numChannels * bitsPerSample / 8
-        uint16_t bitsPerSample; // 8 or 16; we only support 16
-    } WAV_FMT_Chunk;
-
-    // Struct of any RIFF chunk
-    typedef struct {
-        char     chunkID[4];    // "data" is the only we need after "fmt "
-        uint32_t chunkSize;
-    } WAV_Chunk_Header;
-]]
-
--- ///////////// GLOBALS ///////////////
--- Globals persist between Process calls once the Fuse plugin is loaded.
--- Exhausting memory will likely crash DaVinci.
-
-_loadedFileName = ""
-_loadedFileStatus = ""
-_loadedWavFormat = nil      -- an FFI struct of WAV_FMT_Chunk type
--- WARNING: FFI native buffer of signed int16.
--- Use _loadedWavSamples[index] to get signed int16 values.
--- Use numLoadedWavSamples() to get number of samples (0 means no data available).
-_loadedWavSamples = nil
-
-
--- /////////////////////////////////////
-
-
 function Create()
     print("@@ Create")
-
-    _inWavFile = self:AddInput("WAV File", "WavFile", {
-        LINKID_DataType = "Text",
-        INPID_InputControl =  "FileControl",
-        FC_ClipBrowse = false,
-        INP_DoNotifyChanged  = true,
-        INP_External = false,
-        FCS_FilterString = "WAV-Files (*.wav)|*.wav|"
-        })
-
-    _inReload = self:AddInput("Reload Sample", "ReloadSample", {
-        INPID_InputControl =  "ButtonControl",
-        INP_DoNotifyChanged  = true,
-        INP_External = false,
-        BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
-        })
-
-    _inUseForeground = self:AddInput("Use Foreground", "UseForeground", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "CheckboxControl",
-        INP_Integer = true,
-        INP_External = false,
-        INP_Default = 0,
-        INP_DoNotifyChanged = true,
-        })
-
-    -- INFO printfs
-    self:AddInput(string.rep("_", 52), "InfoSeparator", {
-        LINKID_DataType = "Text",
-        INPID_InputControl = "LabelControl",
-        INP_External = false,
-        INP_Passive = true,
-        })
-
-    _inInfoFileName = self:AddInput("No Audio loaded", "InfoFileName", {
-        LINKID_DataType    = "Text",
-        INPID_InputControl = "LabelControl",
-        INP_External       = false,
-        INP_Passive        = true,
-        ICD_Width          = 1,
-        })
-
-    _inInfoFileStatus = self:AddInput("Please select a file first", "InfoFileStatus", {
-        LINKID_DataType    = "Text",
-        INPID_InputControl = "LabelControl",
-        INP_External       = false,
-        INP_Passive        = true,
-        ICD_Width          = 1,
-        })
-
-
-    -- Waveform Parameters
-
-    self:AddControlPage("Waveform")
-
-    _inDisplayWaveform = self:AddInput("Display Waveform", "WaveformDisplay", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "CheckboxControl",
-        INP_DoNotifyChanged = true,
-        INP_External = false,
-        INP_Default = 0,
-        })
-
-    -- Height in pixels for the waveform
-    _inWaveformHeightY = self:AddInput("Height Y", "WaveformHeightY", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "ScrewControl",
-        INP_Default = 100.0,
-        INP_MinScale = 0.0,
-        INP_MaxScale = 100.0,
-        })
-
-    -- How many seconds to display in the image width (centered)
-    _inWaveformSecondsX = self:AddInput("Seconds X", "WaveformSecondsX", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "ScrewControl",
-        INP_Default = 2.0,
-        INP_MinScale = 0.0,
-        INP_MaxScale = 10.0,
-        })
-
-
-    -- VU Meters Parameters
-
-    self:AddControlPage("VU Meters")
-  
-    _inDisplayVuMeters = self:AddInput("Display Vu Meters", "VuMetersDisplay", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "CheckboxControl",
-        INP_DoNotifyChanged = true,
-        INP_External = false,
-        INP_Default = 0,
-        })
-
-
-    --
-    -- AddOutput("User Visible Name", "InternalScriptName")
-    -- It seems the first one is shown in menus, the second one in e.g. expressions.
-    --
-
     _inImgForeground = self:AddInput("Foreground", "Foreground", {
         LINKID_DataType = "Image",
         LINK_Main = 1,
@@ -175,269 +110,493 @@ function Create()
         LINKID_DataType = "Image",
         LINK_Main = 1,
         })
-
-    _outVuMeter0 = self:AddOutput("VuMeter0", "VuMeter0", {
-        LINKID_DataType = "Number",
-        })
-
-end
-
-function NotifyChanged(inp, param, time)
-    print("@@ NotifyChanged")
-
-    if inp ~= nil and param ~= nil then
-        if inp == _inWavFile then
-            readGlobalFile(param.Value)
-        end
-    end
-
 end
 
 function Process(req)
-    local imgFg = _inImgForeground:GetValue(req)
-    if imgFg == nil then
+    local _img = _inImgForeground:GetValue(req)
+    if _img == nil then
         print("@@ Process NO IMG FG" )
         return
     end
+    -- _tmp = _img:Copy()
+    local _tmp = Image({
+        -- IMG_Like = _img,     -- <-- this crashes is source is a GPU image
+        IMG_Width = _img.Width,
+        IMG_Height = _img.Height})
+    print("@@ out img dup imgFg")
 
-    -- get the frame rate of the comp set in the preferences
-    local frameRate = self.Comp:GetPrefs("Comp.FrameFormat.Rate")
-    local frameIndex = req.Time
-    if frameIndex == nil then
-        _outImage:Set(req, imgFg)
-        return
-    end
+    local width = _tmp.Width
+    local height = _tmp.Height
+    print("@@ Process width:" .. width .. ", height:", height)
 
-    -- read params locally
-    local infile = _inWavFile:GetValue(req).Value
-    local inUseForeground = _inUseForeground:GetValue(req).Value
-    local inDisplayWaveform = _inDisplayWaveform:GetValue(req).Value
-    local inDisplayVuMeters = _inDisplayVuMeters:GetValue(req).Value
-
-    local outImg
-    if inUseForeground == 1 then
-        outImg = imgFg:Copy()
-        print("@@ out img dup imgFg")
-    else
-        outImg = Image({IMG_Like = imgFg})
-        outImg:Clear()
-        print("@@ out img clear")
-    end
-
-    if _loadedWavSamples == nil then
-        readGlobalFile(infile)
-    end
-
-    local numSamples = numLoadedWavSamples()
-    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
-
-    if numSamples > 0 then
-        if inDisplayWaveform == 1 then
-            -- drawWaveform(imgFg, frameRate, frameIndex, numSamples)
-        end
-        if inDisplayVuMeters == 1 then
-            -- TBD
+    if self.Status == "OK" then
+        _tp = Pixel({R=1, G=1, B=1, A=1})
+        _tmp:Fill(_tp)
+        _tp = Pixel({R=1, G=0, B=0, A=1})
+        local y = math.floor(height / 2)
+        local p = Pixel({R=1, G=0, B=0, A=1})
+        for x = 0, width - 1 do
+            _tmp:SetPixel(x, y, p)
         end
     end
+
+    _outImage:Set(req, _tmp)
+end
+
+-- -- ///// STRUCTS
+
+-- -- https://en.wikipedia.org/wiki/WAV#WAV_file_header
+-- ffi.cdef[[
+--     // Struct of the outer RIFF chunk
+--     typedef struct {
+--         char     chunkID[4];    // "RIFF"
+--         uint32_t chunkSize;     // File size minus 8
+--         char     format[4];     // "WAVE"
+--     } WAV_RIFF_Header;
+
+--     // Struct of the first mandatory fmt chunk
+--     typedef struct {
+--         char     chunkID[4];    // "fmt "
+--         uint32_t chunkSize;
+--         uint16_t audioFormat;   // 1 = PCM
+--         uint16_t numChannels;
+--         uint32_t sampleRate;
+--         uint32_t bytePerSec;    // sampleRate * bytesPerBlock
+--         uint16_t bytesPerBlock; // numChannels * bitsPerSample / 8
+--         uint16_t bitsPerSample; // 8 or 16; we only support 16
+--     } WAV_FMT_Chunk;
+
+--     // Struct of any RIFF chunk
+--     typedef struct {
+--         char     chunkID[4];    // "data" is the only we need after "fmt "
+--         uint32_t chunkSize;
+--     } WAV_Chunk_Header;
+-- ]]
+
+-- -- ///////////// GLOBALS ///////////////
+-- -- Globals persist between Process calls once the Fuse plugin is loaded.
+-- -- Exhausting memory will likely crash DaVinci.
+
+-- _loadedFileName = ""
+-- _loadedFileStatus = ""
+-- _loadedWavFormat = nil      -- an FFI struct of WAV_FMT_Chunk type
+-- -- WARNING: FFI native buffer of signed int16.
+-- -- Use _loadedWavSamples[index] to get signed int16 values.
+-- -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
+-- _loadedWavSamples = nil
+
+
+-- -- /////////////////////////////////////
+
+
+-- function Create()
+--     print("@@ Create")
+
+--     _inWavFile = self:AddInput("WAV File", "WavFile", {
+--         LINKID_DataType = "Text",
+--         INPID_InputControl =  "FileControl",
+--         FC_ClipBrowse = false,
+--         INP_DoNotifyChanged  = true,
+--         INP_External = false,
+--         FCS_FilterString = "WAV-Files (*.wav)|*.wav|"
+--         })
+
+--     _inReload = self:AddInput("Reload Sample", "ReloadSample", {
+--         INPID_InputControl =  "ButtonControl",
+--         INP_DoNotifyChanged  = true,
+--         INP_External = false,
+--         BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
+--         })
+
+--     _inUseForeground = self:AddInput("Use Foreground", "UseForeground", {
+--         LINKID_DataType = "Number",
+--         INPID_InputControl = "CheckboxControl",
+--         INP_Integer = true,
+--         INP_External = false,
+--         INP_Default = 0,
+--         INP_DoNotifyChanged = true,
+--         })
+
+--     -- INFO printfs
+--     self:AddInput(string.rep("_", 52), "InfoSeparator", {
+--         LINKID_DataType = "Text",
+--         INPID_InputControl = "LabelControl",
+--         INP_External = false,
+--         INP_Passive = true,
+--         })
+
+--     _inInfoFileName = self:AddInput("No Audio loaded", "InfoFileName", {
+--         LINKID_DataType    = "Text",
+--         INPID_InputControl = "LabelControl",
+--         INP_External       = false,
+--         INP_Passive        = true,
+--         ICD_Width          = 1,
+--         })
+
+--     _inInfoFileStatus = self:AddInput("Please select a file first", "InfoFileStatus", {
+--         LINKID_DataType    = "Text",
+--         INPID_InputControl = "LabelControl",
+--         INP_External       = false,
+--         INP_Passive        = true,
+--         ICD_Width          = 1,
+--         })
+
+
+--     -- Waveform Parameters
+
+--     self:AddControlPage("Waveform")
+
+--     _inDisplayWaveform = self:AddInput("Display Waveform", "WaveformDisplay", {
+--         LINKID_DataType = "Number",
+--         INPID_InputControl = "CheckboxControl",
+--         INP_DoNotifyChanged = true,
+--         INP_External = false,
+--         INP_Default = 0,
+--         })
+
+--     -- Height in pixels for the waveform
+--     _inWaveformHeightY = self:AddInput("Height Y", "WaveformHeightY", {
+--         LINKID_DataType = "Number",
+--         INPID_InputControl = "ScrewControl",
+--         INP_Default = 100.0,
+--         INP_MinScale = 0.0,
+--         INP_MaxScale = 100.0,
+--         })
+
+--     -- How many seconds to display in the image width (centered)
+--     _inWaveformSecondsX = self:AddInput("Seconds X", "WaveformSecondsX", {
+--         LINKID_DataType = "Number",
+--         INPID_InputControl = "ScrewControl",
+--         INP_Default = 2.0,
+--         INP_MinScale = 0.0,
+--         INP_MaxScale = 10.0,
+--         })
+
+
+--     -- VU Meters Parameters
+
+--     self:AddControlPage("VU Meters")
+
+--     _inDisplayVuMeters = self:AddInput("Display Vu Meters", "VuMetersDisplay", {
+--         LINKID_DataType = "Number",
+--         INPID_InputControl = "CheckboxControl",
+--         INP_DoNotifyChanged = true,
+--         INP_External = false,
+--         INP_Default = 0,
+--         })
+
+
+--     --
+--     -- AddOutput("User Visible Name", "InternalScriptName")
+--     -- It seems the first one is shown in menus, the second one in e.g. expressions.
+--     --
+
+--     _inImgForeground = self:AddInput("Foreground", "Foreground", {
+--         LINKID_DataType = "Image",
+--         LINK_Main = 1,
+--         })
+
+--     _outImage = self:AddOutput("Output", "Output", {
+--         LINKID_DataType = "Image",
+--         LINK_Main = 1,
+--         })
+
+--     _outVuMeter0 = self:AddOutput("VuMeter0", "VuMeter0", {
+--         LINKID_DataType = "Number",
+--         })
+
+-- end
+
+-- function NotifyChanged(inp, param, time)
+--     print("@@ NotifyChanged")
+
+--     if inp ~= nil and param ~= nil then
+--         if inp == _inWavFile then
+--             readGlobalFile(param.Value)
+--         end
+--     end
+
+-- end
+
+-- function Process(req)
+--     local _img = _inImgForeground:GetValue(req)
+--     if _img == nil then
+--         print("@@ Process NO IMG FG" )
+--         return
+--     end
+--     _tmp = _img:Copy()
+--     print("@@ out img dup imgFg")
+
+--     _tp = Pixel({R=1, G=1, B=1, A=1})
+--     _tmp:Fill(_tp)
+--     _tp = Pixel({R=1, G=0, B=0, A=1})
+--     -- _tmp:SetPixel(0, 0, _tp)
+
+--     _outImage:Set(req, _tmp)
+-- end
+
+-- function __Process(req)
+--     local imgFg = _inImgForeground:GetValue(req)
+--     if imgFg == nil then
+--         print("@@ Process NO IMG FG" )
+--         return
+--     end
+
+--     -- get the frame rate of the comp set in the preferences
+--     local frameRate = self.Comp:GetPrefs("Comp.FrameFormat.Rate")
+--     local frameIndex = req.Time
+--     if frameIndex == nil then
+--         _outImage:Set(req, imgFg)
+--         return
+--     end
+
+--     -- read params locally
+--     local infile = _inWavFile:GetValue(req).Value
+--     local inUseForeground = _inUseForeground:GetValue(req).Value
+--     local inDisplayWaveform = _inDisplayWaveform:GetValue(req).Value
+--     local inDisplayVuMeters = _inDisplayVuMeters:GetValue(req).Value
+
+--     local outImg
+--     if inUseForeground == 1 then
+--         outImg = imgFg:Copy()
+--         print("@@ out img dup imgFg")
+--     else
+--         outImg = Image({IMG_Like = imgFg})
+--         outImg:Clear()
+--         print("@@ out img clear")
+--     end
+
+--     if _loadedWavSamples == nil then
+--         -- readGlobalFile(infile)
+--     end
+
+--     local numSamples = numLoadedWavSamples()
+--     print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
+
+--     if numSamples > 0 then
+--         if inDisplayWaveform == 1 then
+--             -- drawWaveform(req, outImg, frameRate, frameIndex, numSamples)
+
+--             local imgPxW = outImg.Width
+--             local imgPxH = outImg.Height
+--             local y = math.floor(imgPxH / 2)
+--             local p = Pixel({R=1, G=1, B=1, A=1})
+--             for x = 0, imgPxW - 1 do
+--                 -- outImg:SetPixel(x, y, p)
+--             end
+--         end
+--         if inDisplayVuMeters == 1 then
+--             -- TBD
+--         end
+--     end
     
-    _outImage:Set(req, outImg)
-end
+--     _outImage:Set(req, outImg)
+-- end
 
-function drawWaveform(outImg, frameRate, frameIndex, numSamples)
-    local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
-    local inWaveformSecondsX = _inWaveformSecondsX:GetValue(req).Value
+-- function drawWaveform(req, outImg, frameRate, frameIndex, numSamples)
+--     local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
+--     local inWaveformSecondsX = _inWaveformSecondsX:GetValue(req).Value
 
-    local imgPxW = _imgFg.Width
-    local imgPxH = _imgFg.Height
-    local midY = 0.5
-    inWaveformHeightY = inWaveformHeightY / imgPxW
+--     local imgPxW = outImg.Width
+--     local imgPxH = outImg.Height
+--     local midY = 0.5
+--     local thickness = 0.002 -- make it a param
+--     inWaveformHeightY = inWaveformHeightY / imgPxW
+--     print("@@ drawWaveform inWaveformHeightY " .. inWaveformHeightY, imgPxW, imgPxH)
 
-    local ic = ImageChannel(outImg, 1)  -- amount of oversampling (8 in example)
-    local fs = FillStyle()
-    local cs = ChannelStyle()
-    ic:SetStyleFill(fs)
-    cs.Color = Pixel({R = 1, G = 1, B = 1, A = 1})  -- make it params
-    -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
+--     -- local ic = ImageChannel(outImg, 8)  -- quality/amount of oversampling (8 in example)
+--     -- local fs = FillStyle()
+--     -- local cs = ChannelStyle()
+--     -- ic:SetStyleFill(fs)
+--     -- cs.Color = Pixel({R = 1, G = 1, B = 1, A = 1})  -- make it params
+--     -- -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
  
-    local sh = Shape()
-    sh:MoveTo(0, midY)
-    sh:LineTo(1, midY)
+--     -- local sh = Shape()
+--     -- sh:MoveTo(0, midY)
+--     -- sh:LineTo(1, midY)
 
-    -- thickness is in 1/1000th of width of the image
-    -- 8 is precision and flatten_precision (huh??)
-    local thickness = 0.002 -- make it a param
-    sh = sh:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+--     -- -- thickness is in 1/1000th of width of the image
+--     -- -- 8 is precision and flatten_precision (huh??)
+--     -- sh = sh:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
  
-    -- ic:ShapeFill(sh)
-    -- ic:PutToImage("CM_Merge", cs)
+--     -- ic:ShapeFill(sh)
+--     -- ic:PutToImage("CM_Merge", cs)
 
-end
+--     if self.Status == "OK" then
+--         local y = math.floor(imgPxH / 2)
+--         local p = Pixel({A=1})
+--         p.R = 1
+--         p.G = 1
+--         p.B = 1
+--         for x = 0, imgPxW - 1 do
+--             -- outImg:SetPixel(x, y, p)
+--         end
+--     end
 
-function numLoadedWavSamples()
-    if _loadedWavSamples == nil then
-        return 0
-    else
-        -- We only support 16-bit mono samples data
-        return ffi.sizeof(_loadedWavSamples) / 2
-    end
-end
+-- end
 
-function readGlobalFile(filename)
-    local success, msg = pcall(_readFile, filename)
-    if success and msg == nil then
-        _loadedFileStatus = "Loaded " .. numLoadedWavSamples() .. " samples"
-        _loadedFileName = filename
-        _inInfoFileName:SetAttrs({
-            LINKS_Name = getBasename(_loadedFileName),
-            LBLC_LabelColor = 3,
-        })
-        _inInfoFileStatus:SetAttrs({
-            LINKS_Name = _loadedFileStatus,
-            LBLC_LabelColor = 3,
-        })
-        return
-    end
+-- function numLoadedWavSamples()
+--     if _loadedWavSamples == nil then
+--         return 0
+--     else
+--         -- We only support 16-bit mono samples data
+--         return ffi.sizeof(_loadedWavSamples) / 2
+--     end
+-- end
 
-    if msg == nil and not success then
-        msg = "pcall failed"
-    end
-    print("@@ readGlobalFile msg: " .. msg)
-    _loadedFileStatus = msg
-    _loadedFileName = ""
-    _inInfoFileName:SetAttrs({
-        LINKS_Name = "No Audio loaded",
-        LBLC_LabelColor = 3,
-    })
-    _inInfoFileStatus:SetAttrs({
-        LINKS_Name = _loadedFileStatus,
-        LBLC_LabelColor = 3,
-    })
-end
+-- function readGlobalFile(filename)
+--     local msg = _readFile(filename)
+--     if msg == nil then
+--         _loadedFileStatus = "Loaded " .. numLoadedWavSamples() .. " samples"
+--         _loadedFileName = filename
+--         _inInfoFileName:SetAttrs({
+--             LINKS_Name = getBasename(_loadedFileName),
+--             LBLC_LabelColor = 3,
+--         })
+--         _inInfoFileStatus:SetAttrs({
+--             LINKS_Name = _loadedFileStatus,
+--             LBLC_LabelColor = 3,
+--         })
+--         return
+--     else
+--         print("@@ _readFile error: ", msg)
+--         _loadedFileStatus = msg
+--         _loadedFileName = ""
+--         _inInfoFileName:SetAttrs({
+--             LINKS_Name = "No Audio loaded",
+--             LBLC_LabelColor = 3,
+--         })
+--         _inInfoFileStatus:SetAttrs({
+--             LINKS_Name = _loadedFileStatus,
+--             LBLC_LabelColor = 3,
+--         })
+--     end
+-- end
 
-function _readFile(filename)
-    -- Returns an error string or nil on case of success.
-    -- Sets globals _loadedWavFormat and _loadedWavSamples on success.
+-- function _readFile(filename)
+--     -- Returns an error string or nil on case of success.
+--     -- Sets globals _loadedWavFormat and _loadedWavSamples on success.
 
-    -- Comp:MapPath is apparently used to resolve Project Settings > Path Mapping.
-    local filepath = self.Comp:MapPath(filename)
-    print("@@ _readFile " .. filepath)
-    local file, err = io.open(filepath, "rb")
-    if not file then
-        return "Could not open file: " .. tostring(err)
-    end
+--     -- Comp:MapPath is apparently used to resolve Project Settings > Path Mapping.
+--     local filepath = self.Comp:MapPath(filename)
+--     print("@@ _readFile " .. filepath)
+--     local file, err = io.open(filepath, "rb")
+--     if not file then
+--         return "Could not open file: " .. tostring(err)
+--     end
 
-    local riff_chunk = file:read(12)
-    if not riff_chunk or #riff_chunk < 12 then
-        file:close()
-        return "File too small"
-    end
-    local riff = ffi.cast("WAV_RIFF_Header*", riff_chunk)
+--     local riff_chunk = file:read(12)
+--     if not riff_chunk or #riff_chunk < 12 then
+--         file:close()
+--         return "File too small"
+--     end
+--     local riff = ffi.cast("WAV_RIFF_Header*", riff_chunk)
 
-    if ffi.string(riff.chunkID, 4) ~= "RIFF" or ffi.string(riff.format, 4) ~= "WAVE" then
-        file:close()
-        return "Not a valid WAV file"
-    end
+--     if ffi.string(riff.chunkID, 4) ~= "RIFF" or ffi.string(riff.format, 4) ~= "WAVE" then
+--         file:close()
+--         return "Not a valid WAV file"
+--     end
 
-    local channels = 0
-    local sample_rate = 0
-    local bits_per_sample = 0
+--     local channels = 0
+--     local sample_rate = 0
+--     local bits_per_sample = 0
 
-    -- Parse all chunks until we find "fmt", ignore any other ones.
-    while true do
-        local chunk_header = file:read(8)
-        -- print("@@ _readFile " .. "read CHUNK " .. #chunk_header .. " bytes")
-        if not chunk_header or #chunk_header < 8 then
-            break
-        end
+--     -- Parse all chunks until we find "fmt", ignore any other ones.
+--     while true do
+--         local chunk_header = file:read(8)
+--         -- print("@@ _readFile " .. "read CHUNK " .. #chunk_header .. " bytes")
+--         if not chunk_header or #chunk_header < 8 then
+--             break
+--         end
 
-        local chunk = ffi.cast("WAV_Chunk_Header*", chunk_header)
-        local chunk_id = ffi.string(chunk.chunkID, 4)
-        local chunk_size = chunk.chunkSize
-        print("@@ _readFile Chunk " .. chunk_id .. ", size " .. chunk_size)
+--         local chunk = ffi.cast("WAV_Chunk_Header*", chunk_header)
+--         local chunk_id = ffi.string(chunk.chunkID, 4)
+--         local chunk_size = chunk.chunkSize
+--         print("@@ _readFile Chunk " .. chunk_id .. ", size " .. chunk_size)
 
-        if chunk_id == "fmt " then
-            -- Rewind 8 bytes and read the whole format chunk structure
-            file:seek("cur", -8)
-            local fmt_data = file:read(math.max(chunk_size + 8, 24))
-            local fmt = ffi.cast("WAV_FMT_Chunk*", fmt_data)
-            _loadedWavFormat = fmt
+--         if chunk_id == "fmt " then
+--             -- Rewind 8 bytes and read the whole format chunk structure
+--             file:seek("cur", -8)
+--             local fmt_data = file:read(math.max(chunk_size + 8, 24))
+--             local fmt = ffi.cast("WAV_FMT_Chunk*", fmt_data)
+--             _loadedWavFormat = fmt
 
-            channels = fmt.numChannels
-            sample_rate = fmt.sampleRate
-            bits_per_sample = fmt.bitsPerSample
+--             channels = fmt.numChannels
+--             sample_rate = fmt.sampleRate
+--             bits_per_sample = fmt.bitsPerSample
 
-            print("@@ _readFile: channels " .. channels .. ", sample_rate " .. sample_rate .. ", bits_per_sample " .. bits_per_sample )
+--             print("@@ _readFile: channels " .. channels .. ", sample_rate " .. sample_rate .. ", bits_per_sample " .. bits_per_sample )
 
-            -- Validation: we limit ourselves to 16-bit PCM LE, mono or stereo.
-            if fmt.audioFormat ~= 1 then
-                file:close()
-                return "Only uncompressed PCM supported"
-            end
-            if bits_per_sample ~= 16 then
-                file:close()
-                return "Only 16-bit supported"
-            end
-            if channels ~= 1 and channels ~= 2 then
-                file:close()
-                return "Only Mono/Stereo supported"
-            end
-        elseif chunk_id == "data" and channels ~= 0 then
-            -- Only accept data _after_ the fmt chunk
-            local numBytes = chunk_size
-            print("@@ _readFile: DATA numBytes " .. numBytes )
-            local raw_bytes = file:read(numBytes)
-            file:close()
+--             -- Validation: we limit ourselves to 16-bit PCM LE, mono or stereo.
+--             if fmt.audioFormat ~= 1 then
+--                 file:close()
+--                 return "Only uncompressed PCM supported"
+--             end
+--             if bits_per_sample ~= 16 then
+--                 file:close()
+--                 return "Only 16-bit supported"
+--             end
+--             if channels ~= 1 and channels ~= 2 then
+--                 file:close()
+--                 return "Only Mono/Stereo supported"
+--             end
+--         elseif chunk_id == "data" and channels ~= 0 then
+--             -- Only accept data _after_ the fmt chunk
+--             local numBytes = chunk_size
+--             print("@@ _readFile: DATA numBytes " .. numBytes )
+--             local raw_bytes = file:read(numBytes)
+--             file:close()
 
-            if not raw_bytes or #raw_bytes < numBytes then
-                return "Data chunk size mismatch or truncated file"
-            end
+--             if not raw_bytes or #raw_bytes < numBytes then
+--                 return "Data chunk size mismatch or truncated file"
+--             end
 
-            -- Cast raw string data to a C-array of signed 16-bit integers
-            local int16_ptr = ffi.cast("int16_t*", raw_bytes)
-            local total_input_samples = numBytes / 2
+--             -- Cast raw string data to a C-array of signed 16-bit integers
+--             local int16_ptr = ffi.cast("int16_t*", raw_bytes)
+--             local total_input_samples = numBytes / 2
 
-            local out_samples
-            local total_mono_samples
+--             local out_samples
+--             local total_mono_samples
 
-            if channels == 1 then
-                total_mono_samples = total_input_samples
-                -- Allocate native memory array for LuaJIT
-                out_samples = ffi.new("int16_t[?]", total_mono_samples)
-                -- Blit memory instantly via C-copy
-                ffi.copy(out_samples, int16_ptr, numBytes)
-                print("@@ _readFile: MONO loaded " .. total_mono_samples .. " samples" )
-            else
-                -- Stereo mix down to mono
-                total_mono_samples = total_input_samples / 2
-                -- Allocate native memory array for LuaJIT
-                out_samples = ffi.new("int16_t[?]", total_mono_samples)
+--             if channels == 1 then
+--                 total_mono_samples = total_input_samples
+--                 -- Allocate native memory array for LuaJIT
+--                 out_samples = ffi.new("int16_t[?]", total_mono_samples)
+--                 -- Blit memory instantly via C-copy
+--                 ffi.copy(out_samples, int16_ptr, numBytes)
+--                 print("@@ _readFile: MONO loaded " .. total_mono_samples .. " samples" )
+--             else
+--                 -- Stereo mix down to mono
+--                 total_mono_samples = total_input_samples / 2
+--                 -- Allocate native memory array for LuaJIT
+--                 out_samples = ffi.new("int16_t[?]", total_mono_samples)
 
-                -- Average all channel samples
-                for i = 0, total_mono_samples - 1 do
-                    local left = int16_ptr[i * 2]
-                    local right = int16_ptr[i * 2 + 1]
-                    -- Average channels for mono
-                    out_samples[i] = math.floor((left + right) / 2)
-                end
-                print("@@ _readFile: STEREO loaded " .. total_mono_samples .. " samples" )
-            end
+--                 -- Average all channel samples
+--                 for i = 0, total_mono_samples - 1 do
+--                     local left = int16_ptr[i * 2]
+--                     local right = int16_ptr[i * 2 + 1]
+--                     -- Average channels for mono
+--                     out_samples[i] = math.floor((left + right) / 2)
+--                 end
+--                 print("@@ _readFile: STEREO loaded " .. total_mono_samples .. " samples" )
+--             end
 
-            -- Keep a reference on the mono sample data.
-            _loadedWavSamples = out_samples
-            print("@@ _readFile: _loadedWavSamples " .. numLoadedWavSamples() .. " samples" )
-            -- We already closed the file above. Return no error
-            return nil
-        else
-            -- Skip unknown chunks
-            file:seek("cur", chunk_size)
-        end
-    end
+--             -- Keep a reference on the mono sample data.
+--             _loadedWavSamples = out_samples
+--             print("@@ _readFile: _loadedWavSamples " .. numLoadedWavSamples() .. " samples" )
+--             -- We already closed the file above. Return no error
+--             return nil
+--         else
+--             -- Skip unknown chunks
+--             file:seek("cur", chunk_size)
+--         end
+--     end
 
-    file:close()
-    return "WAV format or data not found"
-end
+--     file:close()
+--     return "WAV format or data not found"
+-- end
 
--- Get the base filename from a filepath
-function getBasename(filePath)
-    return string.match(filePath, "([^/\\]+)$")
-end
+-- -- Get the base filename from a filepath
+-- function getBasename(filePath)
+--     return string.match(filePath, "([^/\\]+)$")
+-- end
