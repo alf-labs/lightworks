@@ -3,20 +3,50 @@
 -- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 -- 
 
+local ffi = require("ffi")
+
 FuRegisterClass("RalfAudioSpectrum", CT_Tool, {
     REGS_Name               = "Ralf Audio Spectrum",
     REGS_Category           = "Fuses",
     REGS_OpIconString       = "AWW",
     REGS_OpDescription      = "Ralf Audio Spectrum",
+    REG_OpNoMask            = true,
     REG_Fuse_NoEdit         = false,
     REG_Fuse_NoReload       = false,
-    REG_Source_GlobalCtrls  = true,
-    REG_Source_SizeCtrls    = true,
-    REG_Source_AspectCtrls  = true,
     REG_TimeVariant         = true,
-    REG_NoPreCalcProcess    = true,  -- call Process for precalc requests (instead of PreCalcProcess)
+    REG_NoPreCalcProcess    = true,
     })
 
+
+-- ///// STRUCTS
+
+-- https://en.wikipedia.org/wiki/WAV#WAV_file_header
+ffi.cdef[[
+    // Struct of the outer RIFF chunk
+    typedef struct {
+        char     chunkID[4];    // "RIFF"
+        uint32_t chunkSize;     // File size minus 8
+        char     format[4];     // "WAVE"
+    } WAV_RIFF_Header;
+
+    // Struct of the first mandatory fmt chunk
+    typedef struct {
+        char     chunkID[4];    // "fmt "
+        uint32_t chunkSize;
+        uint16_t audioFormat;   // 1 = PCM
+        uint16_t numChannels;
+        uint32_t sampleRate;
+        uint32_t bytePerSec;    // sampleRate * bytesPerBlock
+        uint16_t bytesPerBlock; // numChannels * bitsPerSample / 8
+        uint16_t bitsPerSample; // 8 or 16; we only support 16
+    } WAV_FMT_Chunk;
+
+    // Struct of any RIFF chunk
+    typedef struct {
+        char     chunkID[4];    // "data" is the only we need after "fmt "
+        uint32_t chunkSize;
+    } WAV_Chunk_Header;
+]]
 
 -- ///////////// GLOBALS ///////////////
 -- Globals persist between Process calls once the Fuse plugin is loaded.
@@ -24,7 +54,12 @@ FuRegisterClass("RalfAudioSpectrum", CT_Tool, {
 
 _loadedFileName = ""
 _loadedFileStatus = ""
-_loadedContent = nil
+_loadedWavFormat = nil      -- an FFI struct of WAV_FMT_Chunk type
+-- WARNING: FFI native buffer of signed int16.
+-- Use _loadedWavSamples[index] to get signed int16 values.
+-- Use numLoadedWavSamples() to get number of samples (0 means no data available).
+_loadedWavSamples = nil
+
 
 -- /////////////////////////////////////
 
@@ -39,14 +74,14 @@ function Create()
         INP_DoNotifyChanged  = true,
         INP_External = false,
         FCS_FilterString = "WAV-Files (*.wav)|*.wav|"
-    })
+        })
 
     _inReload = self:AddInput("Reload Sample", "ReloadSample", {
         INPID_InputControl =  "ButtonControl",
         INP_DoNotifyChanged  = true,
         INP_External = false,
         BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
-    })
+        })
 
     -- INFO printfs
     self:AddInput(string.rep("_", 52), "InfoSeparator", {
@@ -54,7 +89,7 @@ function Create()
         INPID_InputControl = "LabelControl",
         INP_External = false,
         INP_Passive = true,
-    })
+        })
 
     _inInfoFileName = self:AddInput("No Audio loaded", "InfoFileName", {
         LINKID_DataType    = "Text",
@@ -62,7 +97,7 @@ function Create()
         INP_External       = false,
         INP_Passive        = true,
         ICD_Width          = 1,
-    })
+        })
 
     _inInfoFileStatus = self:AddInput("Please select a file first", "InfoFileStatus", {
         LINKID_DataType    = "Text",
@@ -70,7 +105,7 @@ function Create()
         INP_External       = false,
         INP_Passive        = true,
         ICD_Width          = 1,
-    })
+        })
 
     --
     -- AddOutput("User Visible Name", "InternalScriptName")
@@ -80,16 +115,16 @@ function Create()
     _inImgForeground = self:AddInput("Foreground", "Foreground", {
         LINKID_DataType = "Image",
         LINK_Main = 1,
-    })
+        })
 
     _outImage = self:AddOutput("Output", "Output", {
         LINKID_DataType = "Image",
         LINK_Main = 1,
-    })
+        })
 
     _outVuMeter0 = self:AddOutput("VuMeter0", "VuMeter0", {
         LINKID_DataType = "Number",
-    })
+        })
 
 end
 
@@ -102,19 +137,6 @@ function NotifyChanged(inp, param, time)
         end
     end
 
-end
-
-function PreCalcProcess(req)
-    print("@@ PreCalcProcess")
-    local imgFg = _inImgForeground:GetValue(req)
-
-    -- Reference: https://www.steakunderwater.com/VFXPedia/96.0.243.189/indexfbdf.html?title=Eyeon:Script/Reference/Applications/Fuse/Classes/ScriptOperator/AddOutput
-    -- Any output that is not the main image should have a value set in PreCalcProcess
-    -- to ensure connected tools do not fail before Process() is called.
-    -- PreCalcProcess is called before each Process call.
-
-    _outImage:Set(req, imgFg)
-    _outVuMeter0:Set(req, Number(0))
 end
 
 function Process(req)
@@ -130,69 +152,181 @@ function Process(req)
 
     -- read params locally
     local infile = _inWavFile:GetValue(req).Value
-    if _loadedContent == nil then
+    if _loadedWavSamples == nil then
         readGlobalFile(infile)
     end
 
-    if _loadedContent == nil then
-        print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", NO CONTENT for " .. infile )
-    else
-        print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", file " .. _loadedFileName, ", content " .. #_loadedContent )
-    end
+    local numSamples = numLoadedWavSamples()
+    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
     
     _outImage:Set(req, imgFg)
 end
 
-function readGlobalFile(filename)
-    local data, err = _readFile(filename)
-    if data ~= nil then
-        _loadedContent = data
-        _loadedFileStatus = "Loaded " .. #_loadedContent .. " bytes"
-        _loadedFileName = filename
-        _inInfoFileName:SetAttrs({
-            LINKS_Name = getFilename(_loadedFileName),
-            LBLC_LabelColor = 3,
-        })
-        _inInfoFileStatus:SetAttrs({
-            LINKS_Name = _loadedFileStatus,
-            LBLC_LabelColor = 3,
-        })
-    elseif err ~= nil then
-        _loadedContent = nil
-        _loadedFileStatus = err
-        _loadedFileName = ""
-        _inInfoFileName:SetAttrs({
-            LINKS_Name = "No Audio loaded",
-            LBLC_LabelColor = 3,
-        })
-        _inInfoFileStatus:SetAttrs({
-            LINKS_Name = _loadedFileStatus,
-            LBLC_LabelColor = 3,
-        })
+function numLoadedWavSamples()
+    if _loadedWavSamples == nil then
+        return 0
+    else
+        -- We only support 16-bit mono samples data
+        return ffi.sizeof(_loadedWavSamples) / 2
     end
 end
 
+function readGlobalFile(filename)
+    local success, msg = pcall(_readFile, filename)
+    if success and msg == nil then
+        _loadedFileStatus = "Loaded " .. numLoadedWavSamples() .. " samples"
+        _loadedFileName = filename
+        _inInfoFileName:SetAttrs({
+            LINKS_Name = getBasename(_loadedFileName),
+            LBLC_LabelColor = 3,
+        })
+        _inInfoFileStatus:SetAttrs({
+            LINKS_Name = _loadedFileStatus,
+            LBLC_LabelColor = 3,
+        })
+        return
+    end
+
+    if msg == nil and not success then
+        msg = "pcall failed"
+    end
+    print("@@ readGlobalFile msg: " .. msg)
+    _loadedFileStatus = msg
+    _loadedFileName = ""
+    _inInfoFileName:SetAttrs({
+        LINKS_Name = "No Audio loaded",
+        LBLC_LabelColor = 3,
+    })
+    _inInfoFileStatus:SetAttrs({
+        LINKS_Name = _loadedFileStatus,
+        LBLC_LabelColor = 3,
+    })
+end
+
 function _readFile(filename)
+    -- Returns an error string or nil on case of success.
+    -- Sets globals _loadedWavFormat and _loadedWavSamples on success.
+
     -- Comp:MapPath is apparently used to resolve Project Settings > Path Mapping.
     local filepath = self.Comp:MapPath(filename)
     print("@@ _readFile " .. filepath)
     local file, err = io.open(filepath, "rb")
     if not file then
-        return nil, "Could not open file: " .. tostring(err)
+        return "Could not open file: " .. tostring(err)
     end
 
-    local riff_data = file:read(12)
-    if not riff_data or #riff_data < 12 then
+    local riff_chunk = file:read(12)
+    if not riff_chunk or #riff_chunk < 12 then
         file:close()
-        return nil, "File too small"
+        return "File too small"
+    end
+    local riff = ffi.cast("WAV_RIFF_Header*", riff_chunk)
+
+    if ffi.string(riff.chunkID, 4) ~= "RIFF" or ffi.string(riff.format, 4) ~= "WAVE" then
+        file:close()
+        return "Not a valid WAV file"
+    end
+
+    local channels = 0
+    local sample_rate = 0
+    local bits_per_sample = 0
+
+    -- Parse all chunks until we find "fmt", ignore any other ones.
+    while true do
+        local chunk_header = file:read(8)
+        -- print("@@ _readFile " .. "read CHUNK " .. #chunk_header .. " bytes")
+        if not chunk_header or #chunk_header < 8 then
+            break
+        end
+
+        local chunk = ffi.cast("WAV_Chunk_Header*", chunk_header)
+        local chunk_id = ffi.string(chunk.chunkID, 4)
+        local chunk_size = chunk.chunkSize
+        print("@@ _readFile Chunk " .. chunk_id .. ", size " .. chunk_size)
+
+        if chunk_id == "fmt " then
+            -- Rewind 8 bytes and read the whole format chunk structure
+            file:seek("cur", -8)
+            local fmt_data = file:read(math.max(chunk_size + 8, 24))
+            local fmt = ffi.cast("WAV_FMT_Chunk*", fmt_data)
+            _loadedWavFormat = fmt
+
+            channels = fmt.numChannels
+            sample_rate = fmt.sampleRate
+            bits_per_sample = fmt.bitsPerSample
+
+            print("@@ _readFile: channels " .. channels .. ", sample_rate " .. sample_rate .. ", bits_per_sample " .. bits_per_sample )
+
+            -- Validation: we limit ourselves to 16-bit PCM LE, mono or stereo.
+            if fmt.audioFormat ~= 1 then
+                file:close()
+                return "Only uncompressed PCM supported"
+            end
+            if bits_per_sample ~= 16 then
+                file:close()
+                return "Only 16-bit supported"
+            end
+            if channels ~= 1 and channels ~= 2 then
+                file:close()
+                return "Only Mono/Stereo supported"
+            end
+        elseif chunk_id == "data" and channels ~= 0 then
+            -- Only accept data _after_ the fmt chunk
+            local numBytes = chunk_size
+            print("@@ _readFile: DATA numBytes " .. numBytes )
+            local raw_bytes = file:read(numBytes)
+            file:close()
+
+            if not raw_bytes or #raw_bytes < numBytes then
+                return "Data chunk size mismatch or truncated file"
+            end
+
+            -- Cast raw string data to a C-array of signed 16-bit integers
+            local int16_ptr = ffi.cast("int16_t*", raw_bytes)
+            local total_input_samples = numBytes / 2
+
+            local out_samples
+            local total_mono_samples
+
+            if channels == 1 then
+                total_mono_samples = total_input_samples
+                -- Allocate native memory array for LuaJIT
+                out_samples = ffi.new("int16_t[?]", total_mono_samples)
+                -- Blit memory instantly via C-copy
+                ffi.copy(out_samples, int16_ptr, numBytes)
+                print("@@ _readFile: MONO loaded " .. total_mono_samples .. " samples" )
+            else
+                -- Stereo mix down to mono
+                total_mono_samples = total_input_samples / 2
+                -- Allocate native memory array for LuaJIT
+                out_samples = ffi.new("int16_t[?]", total_mono_samples)
+
+                -- Average all channel samples
+                for i = 0, total_mono_samples - 1 do
+                    local left = int16_ptr[i * 2]
+                    local right = int16_ptr[i * 2 + 1]
+                    -- Average channels for mono
+                    out_samples[i] = math.floor((left + right) / 2)
+                end
+                print("@@ _readFile: STEREO loaded " .. total_mono_samples .. " samples" )
+            end
+
+            -- Keep a reference on the mono sample data.
+            _loadedWavSamples = out_samples
+            print("@@ _readFile: _loadedWavSamples " .. numLoadedWavSamples() .. " samples" )
+            -- We already closed the file above. Return no error
+            return nil
+        else
+            -- Skip unknown chunks
+            file:seek("cur", chunk_size)
+        end
     end
 
     file:close()
-    return riff_data
+    return "WAV format or data not found"
 end
 
 -- Get the base filename from a filepath
-function getFilename(mediaDirName)
-    local path, basename = string.match(mediaDirName, "^(.+[/\\])(.+)")
-    return basename
+function getBasename(filePath)
+    return string.match(filePath, "([^/\\]+)$")
 end
