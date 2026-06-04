@@ -1,7 +1,7 @@
 --
 -- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 -- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
--- 
+--
 
 local ffi = require("ffi")
 
@@ -10,12 +10,12 @@ FuRegisterClass("RalfAudioVuMeter", CT_SourceTool, {
     REGS_OpDescription      = "Ralf Audio Meter",
 	REGS_Category = "Generator",
 	REGS_OpIconString = "fSc",
-	
+
 	REG_Source_GlobalCtrls = true,
 	REG_Source_SizeCtrls = true,
 	REG_Source_AspectCtrls = true,
 	REG_Source_DepthCtrls = true,
-	
+
 	REG_TimeVariant = true,
 	})
 
@@ -235,12 +235,12 @@ function Process(req)
     -- This part here is mirrored from the Fuse SourceTool Sample.
 	local realWidth = Width;
 	local realHeight = Height;
-	
+
 	-- We'll handle proxy ourselves
 	Width = Width / Scale
 	Height = Height / Scale
 	Scale = 1
-	
+
 	local outImgAttrs = {
 		IMG_Document = self.Comp,
 		{ IMG_Channel = "Red", },
@@ -256,17 +256,17 @@ function Process(req)
 		IMG_Quality = not req:IsQuick(),
 		IMG_MotionBlurQuality = not req:IsNoMotionBlur(),
 		}
-	
+
 	if not req:IsStampOnly() then
 		outImgAttrs.IMG_ProxyScale = 1
 	end
-	
+
 	if SourceDepth ~= 0 then
 		outImgAttrs.IMG_Depth = SourceDepth
 	end
-	
+
 	local outImg = Image(outImgAttrs)
-    
+
     -- get the frame rate of the comp set in the preferences
     local frameRate = self.Comp:GetPrefs("Comp.FrameFormat.Rate")
     local frameIndex = req.Time
@@ -304,7 +304,7 @@ function Process(req)
             -- TBD
         end
     end
-    
+
     _outImage:Set(req, outImg)
 end
 
@@ -320,7 +320,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
 
     local imgPxW = outImg.Width
     local imgPxH = outImg.Height
-    -- Shape coordinates is 0..1 in width, and 0..(H/W) in Height    
+    -- Shape coordinates is 0..1 in width, and 0..(H/W) in Height
     local rescaleY = imgPxH / imgPxW
     local scaleX = 1 / imgPxW
     local scaleY = scaleX
@@ -336,7 +336,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     numSamplesHalfWidth = inWaveformSecondsX * _loadedSampleRate / 2
     numSamplesPerX = inWaveformSecondsX * _loadedSampleRate / imgPxW
 
-    -- print("@@ drawWaveform midY " .. midY .. ", halfWaveHeightY " .. halfWaveHeightY .. 
+    -- print("@@ drawWaveform midY " .. midY .. ", halfWaveHeightY " .. halfWaveHeightY ..
     --       ", midSampleIndex " .. midSampleIndex .. ", numSamplesPerX " .. numSamplesPerX,
     --     imgPxW * scaleX, imgPxH * scaleY, inWaveformSecondsX, _loadedSampleRate, imgPxW)
 
@@ -348,7 +348,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     cs_outline.Color = Pixel({R = 1, G = 1, B = 1, A = 1})  -- make it params
     cs_filled.Color  = Pixel({R = fillAlpha, G = fillAlpha, B = fillAlpha, A = fillAlpha})
     -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
- 
+
     numSamples = numSamples - 1
     local imgPxW1 = imgPxW - 1
     local sh_outline

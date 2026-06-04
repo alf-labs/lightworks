@@ -37,14 +37,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! -f "$FN" ]]; then
-    echo "Error: Invalid file '$FN'"
-    echo "Usage: $0 filename.fuse [-f]"
-    exit 1
-fi
-
 BN=$(basename "$FN")
-SRC="$FN"
+SRC=$(cygpath "$FN")
 DST=$(cygpath "$APPDATA\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses\\$BN")
 
 echo "Local : $FN"
@@ -62,19 +56,23 @@ if [[ "$OP" == "vimdiff" ]]; then
     exit 0
 elif [[ -n "$DRY" ]]; then
     # Default is to diff if not --force
-    diff "$SRC" "$DST" | less
+    if [[ -f "$SRC" && -f "$DST" ]]; then
+        diff -s "$SRC" "$DST" | less --quit-if-one-screen
+    fi
 fi
 echo
+
 echo "Perform $OP..."
 if [[ "$OP" == "install" ]]; then
-    $DRY cp -v "$FN" "$DST"
+    $DRY cp -v --interactive "$FN" "$DST"
+
 elif [[ "$OP" == "grab" ]]; then
-    $DRY cp -v "$DST" "$FN"
+    $DRY cp -v --interactive "$DST" "$FN"
 fi
 
 if [[ -n "$DRY" ]]; then
     echo
-    echo "DRY MODE. Use '$0 $FN -f' to actually run."
+    echo "DRY MODE. Use '$0 $FN [flags] -f' to actually run."
 fi
 echo
 # ~~
