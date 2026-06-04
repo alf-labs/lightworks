@@ -73,6 +73,10 @@ _loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for eas
 -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
 _loadedWavSamples = nil
 
+_vuMeterDbValue = -96.0     -- the loudness value in dB
+_vuMeterLinearValue = 0     -- a [0..1] loudness value
+
+
 -- Note for self:
 -- Right now we load the entire WAV mono samples in memory. If we wanted to load
 -- more than memory could handle, we could change _loadedWavSamples to be loaded
@@ -97,11 +101,19 @@ function Create()
         FCS_FilterString = "WAV-Files (*.wav)|*.wav|"
         })
 
-    _inReload = self:AddInput("Reload Sample", "ReloadSample", {
+    _inReload = self:AddInput("Reload Audio File", "ReloadAudio", {
         INPID_InputControl =  "ButtonControl",
         INP_DoNotifyChanged  = true,
         INP_External = false,
         BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
+        })
+
+    _inLiveMonitor = self:AddInput("Live Monitor", "LiveMonitor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_DoNotifyChanged = true,
+        INP_External = false,
+        INP_Default = 1,
         })
 
     -- INFO printfs
@@ -128,6 +140,13 @@ function Create()
         ICD_Width          = 1,
         })
 
+    _inInfoLiveMonitor = self:AddInput("Monitor: n/a", "InfoLiveMonitor", {
+        LINKID_DataType    = "Text",
+        INPID_InputControl = "LabelControl",
+        INP_External       = false,
+        INP_Passive        = true,
+        ICD_Width          = 1,
+        })
 
     -- Waveform Parameters
 
@@ -213,7 +232,11 @@ function Create()
         LINK_Main = 1,
         })
 
-    _outVuMeter0 = self:AddOutput("VuMeter0", "VuMeter0", {
+    _outVuMeterDb = self:AddOutput("VuMeterDb", "VuMeterDb", {
+        LINKID_DataType = "Number",
+        })
+
+    _outVuMeterLinear = self:AddOutput("VuMeterLinear", "VuMeterLinear", {
         LINKID_DataType = "Number",
         })
 
@@ -286,6 +309,7 @@ function Process(req)
 
     -- read params locally
     local infile = _inWavFile:GetValue(req).Value
+    local inLiveMonitor = _inLiveMonitor:GetValue(req).Value
     local inDisplayWaveform = _inDisplayWaveform:GetValue(req).Value
     local inDisplayVuMeters = _inDisplayVuMeters:GetValue(req).Value
 
@@ -294,18 +318,74 @@ function Process(req)
     end
 
     local numSamples = numLoadedWavSamples()
-    -- print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
+    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
 
     if numSamples > 0 then
+        computeVuMeter(frameIndex, frameRate, numSamples)
+
         if inDisplayWaveform == 1 then
             drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         end
         if inDisplayVuMeters == 1 then
             -- TBD
         end
+
+        if inLiveMonitor == 1 then
+            _inInfoLiveMonitor:SetAttrs({
+                LINKS_Name = string.format("Monitor: %.2f dB, %.2f linear",
+                    _vuMeterDbValue, _vuMeterLinearValue),
+                LBLC_LabelColor = 3,
+        })
+
+        end
     end
 
     _outImage:Set(req, outImg)
+    _outVuMeterDb:Set(req, _vuMeterDbValue)
+    _outVuMeterLinear:Set(req, _vuMeterLinearValue)
+end
+
+function computeVuMeter(frameIndex, frameRate, numSamples)
+    -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
+    print("@@ computeVuMeter ", frameIndex, frameRate, numSamples)
+
+    local smoothingFactor = 0.2 -- Adjust between 0.0 and 1.0 (Lower = slower/smoother) -- TBD param
+
+    -- The index of the sample in the middle
+    local midSampleIndex = toSampleIndex(frameIndex, frameRate)
+    -- Use 1 second of samples to compute the loudness factor (TBD make that a param?)
+    local endSampleIndex = math.min(midSampleIndex + _loadedSampleRate, numSamples) - 1
+
+    _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, smoothingFactor)
+end
+
+function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
+    local lenSamples = endIndex - startIndex + 1
+    print("@@ _computeVuMeter from " .. startIndex .. " to " .. endIndex .. ", len " .. lenSamples)
+    if lenSamples <= 0 then
+        return -96.0, 0.0
+    end
+
+    local sumSquares = 0.0
+
+    for i = startIndex, endIndex do
+        local normalized = _loadedWavSamples[i] / MAX_INT16
+        sumSquares = sumSquares + (normalized * normalized)
+    end
+
+    local rms = math.sqrt(sumSquares / lenSamples)
+    linearValue = (smoothingFactor * rms) + ((1 - smoothingFactor) * linearValue)
+
+    local currentDb = -96.0
+    if linearValue > 0.00001 then
+        currentDb = 20 * math.log10(linearValue)
+    end
+
+    if currentDb < -60 then
+        currentDb = -60
+    end
+
+    return currentDb, linearValue
 end
 
 function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
@@ -330,11 +410,11 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local halfWaveHeightY = inWaveformHeightY * scaleY / 2
 
     -- The index of the sample in the middle
-    midSampleIndex = toSampleIndex(frameIndex, frameRate)
+    local midSampleIndex = toSampleIndex(frameIndex, frameRate)
     -- We display inWaveformSecondsX numbers of seconds on the img width,
     -- so half before and half after. Convert that to number of samples.
-    numSamplesHalfWidth = inWaveformSecondsX * _loadedSampleRate / 2
-    numSamplesPerX = inWaveformSecondsX * _loadedSampleRate / imgPxW
+    local numSamplesHalfWidth = inWaveformSecondsX * _loadedSampleRate / 2
+    local numSamplesPerX = inWaveformSecondsX * _loadedSampleRate / imgPxW
 
     -- print("@@ drawWaveform midY " .. midY .. ", halfWaveHeightY " .. halfWaveHeightY ..
     --       ", midSampleIndex " .. midSampleIndex .. ", numSamplesPerX " .. numSamplesPerX,
