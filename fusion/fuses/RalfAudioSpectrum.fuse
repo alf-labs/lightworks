@@ -57,6 +57,7 @@ ffi.cdef[[
 _loadedFileName = ""
 _loadedFileStatus = ""
 _loadedWavFormat = nil      -- an FFI struct of WAV_FMT_Chunk type
+_loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for easier access
 -- WARNING: FFI native buffer of signed int16.
 -- Use _loadedWavSamples[index] to get signed int16 values.
 -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
@@ -245,7 +246,7 @@ function Process(req)
     end
 
     local numSamples = numLoadedWavSamples()
-    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
+    -- print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
 
     if numSamples > 0 then
         if inDisplayWaveform == 1 then
@@ -260,7 +261,7 @@ function Process(req)
 end
 
 function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
-    -- Caller should not invoke this if _loadedWavSamples or _loadedWavFormat are nil. We don't check again here.
+    -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
 
     local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
     -- How many seconds we represent on the X axis
@@ -280,10 +281,12 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     midSampleIndex = toSampleIndex(frameIndex, frameRate)
     -- We display inWaveformSecondsX numbers of seconds on the img width,
     -- so half before and half after. Convert that to number of samples.
-    numSamplesHalfWidth = inWaveformSecondsX * _loadedWavFormat.sampleRate / 2
-    numSamplesPerX = inWaveformSecondsX * _loadedWavFormat.sampleRate / imgPxW
+    numSamplesHalfWidth = inWaveformSecondsX * _loadedSampleRate / 2
+    numSamplesPerX = inWaveformSecondsX * _loadedSampleRate / imgPxW
 
-    print("@@ drawWaveform midY " .. midY .. ", halfWaveHeightY " .. halfWaveHeightY .. ", midSampleIndex " .. midSampleIndex .. ", numSamplesPerX " .. numSamplesPerX, imgPxW * scaleX, imgPxH * scaleY)
+    -- print("@@ drawWaveform midY " .. midY .. ", halfWaveHeightY " .. halfWaveHeightY .. 
+    --       ", midSampleIndex " .. midSampleIndex .. ", numSamplesPerX " .. numSamplesPerX,
+    --     imgPxW * scaleX, imgPxH * scaleY, inWaveformSecondsX, _loadedSampleRate, imgPxW)
 
     local ic = ImageChannel(outImg, 8)  -- quality/amount of oversampling (8 in example)
     local fs = FillStyle()
@@ -349,7 +352,7 @@ function toSampleIndex(frameIndex, frameRate)
         return 0
     end
     local seconds = frameIndex / frameRate
-    return math.floor(seconds * _loadedWavFormat.sampleRate)
+    return math.floor(seconds * _loadedSampleRate)
 end
 
 function readGlobalFile(filename)
@@ -428,6 +431,7 @@ function _readFile(filename)
             local fmt_data = file:read(math.max(chunk_size + 8, 24))
             local fmt = ffi.cast("WAV_FMT_Chunk*", fmt_data)
             _loadedWavFormat = fmt
+            _loadedSampleRate = fmt.sampleRate
 
             channels = fmt.numChannels
             sample_rate = fmt.sampleRate
