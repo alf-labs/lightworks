@@ -45,6 +45,12 @@ echo "Local : $FN"
 echo "Fusion: $DST"
 echo
 
+if [[ -z "$FN" ]]; then
+    echo "Error: Missing filename."
+    echo "Usage: $0 filename.fuse [-f] [--grab] [--vimdiff]"
+    exit 1
+fi
+
 if [[ "$FN" == "$DST" ]]; then
     echo "Error: Local '$FN' is the same as Fusion path."
     echo "Usage: $0 local/filename.fuse [-f]"
