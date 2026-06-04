@@ -50,6 +50,16 @@ ffi.cdef[[
     } WAV_Chunk_Header;
 ]]
 
+-- ///////////// Constants ///////////////
+-- LuaJit will optimize these if they are not modified.
+
+local MAX_INT16 = 32768
+
+local WaveformShape_SignedWave = 0
+local WaveformShape_HalfWave = 1
+local WaveformShape_MirrorWave = 2
+
+
 -- ///////////// GLOBALS ///////////////
 -- Globals persist between Process calls once the Fuse plugin is loaded.
 -- Exhausting memory will likely crash DaVinci.
@@ -62,6 +72,14 @@ _loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for eas
 -- Use _loadedWavSamples[index] to get signed int16 values.
 -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
 _loadedWavSamples = nil
+
+-- Note for self:
+-- Right now we load the entire WAV mono samples in memory. If we wanted to load
+-- more than memory could handle, we could change _loadedWavSamples to be loaded
+-- from disk in large segments (e.g. 10 MB) with a moving window. Currently, the
+-- typical music I'd process is 5-10 minutes long. 10 min at 48 kHz mono is about
+-- 29 million samples, or 58 MB. That's perfectly fine on a 32 GB machine which
+-- typically reports 12 GB free -- that's enough for 37 hours of mono 16-bit samples.
 
 
 -- /////////////////////////////////////
@@ -123,24 +141,54 @@ function Create()
         INP_Default = 1,
         })
 
-    -- Height in pixels for the waveform
-    _inWaveformHeightY = self:AddInput("Height Y", "WaveformHeightY", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "ScrewControl",
-        INP_Default = 100.0,
-        INP_MinScale = 0.0,
-        INP_MaxScale = 100.0,
-        })
-
     -- How many seconds to display in the image width (centered)
     _inWaveformSecondsX = self:AddInput("Seconds X", "WaveformSecondsX", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ScrewControl",
-        INP_Default = 2.0,
+        INP_Default = 0.5,
         INP_MinScale = 0.0,
         INP_MaxScale = 10.0,
         })
 
+    -- Height in pixels for the waveform
+    _inWaveformHeightY = self:AddInput("Height Y", "WaveformHeightY", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ScrewControl",
+        INP_Default = 600.0,
+        INP_MinScale = 0.0,
+        INP_MaxScale = 100.0,
+        })
+
+    _inWaveformShape = self:AddInput("Shape", "WaveformShape", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ComboControl",
+        INP_Default = 0.0,
+        INP_Integer = true,
+        ICD_Width = 1,
+        { CCS_AddString = "Signed Wave", },             -- WaveformShape_SignedWave
+        { CCS_AddString = "Half Wave (filled)", },      -- WaveformShape_HalfWave
+        { CCS_AddString = "Mirror Wave (filled)", },    -- WaveformShape_MirrorWave
+        CC_LabelPosition = "Horizontal",
+        })
+
+    _inWaveformStrokeWidth = self:AddInput("Stroke Width", "WaveformStrokeWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinAllowed = 0.0,
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.01,
+        INP_Default = 0.002,
+        ICD_Center = 0.001,
+        })
+
+    _inWaveformFillAlpha = self:AddInput("Fill Alpha", "WaveformFillAlpha", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.5,
+        ICD_Center = 1,
+        })
 
     -- VU Meters Parameters
 
@@ -263,9 +311,12 @@ end
 function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
 
-    local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
+    local inWaveformShape = _inWaveformShape:GetValue(req).Value
     -- How many seconds we represent on the X axis
     local inWaveformSecondsX = _inWaveformSecondsX:GetValue(req).Value
+    local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
+    local inWaveformStrokeWidth = _inWaveformStrokeWidth:GetValue(req).Value
+    local inWaveformFillAlpha = _inWaveformFillAlpha:GetValue(req).Value
 
     local imgPxW = outImg.Width
     local imgPxH = outImg.Height
@@ -274,7 +325,8 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local scaleX = 1 / imgPxW
     local scaleY = scaleX
     local midY = 0.5 * rescaleY
-    local thickness = 0.002 -- make it a param
+    local thickness = inWaveformStrokeWidth
+    local fillAlpha = inWaveformFillAlpha
     local halfWaveHeightY = inWaveformHeightY * scaleY / 2
 
     -- The index of the sample in the middle
@@ -290,50 +342,108 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
 
     local ic = ImageChannel(outImg, 8)  -- quality/amount of oversampling (8 in example)
     local fs = FillStyle()
-    local cs = ChannelStyle()
+    local cs_outline = ChannelStyle()
+    local cs_filled = ChannelStyle()
     ic:SetStyleFill(fs)
-    cs.Color = Pixel({R = 1, G = 1, B = 1, A = 1})  -- make it params
+    cs_outline.Color = Pixel({R = 1, G = 1, B = 1, A = 1})  -- make it params
+    cs_filled.Color  = Pixel({R = fillAlpha, G = fillAlpha, B = fillAlpha, A = fillAlpha})
     -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
  
-    local sh = Shape()
     numSamples = numSamples - 1
-    for i = 0, imgPxW - 1 do
-        local x = i * scaleX -- range [0..1[
-        local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
-        sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
-        local sample = _loadedWavSamples[sampleIndex] / 32768 -- range -1 to +1
-        local y = midY + sample * halfWaveHeightY
-        if i == 0 then
-            sh:MoveTo(x, y)
-        else
-            sh:LineTo(x, y)
+    local imgPxW1 = imgPxW - 1
+    local sh_outline
+    local sh_filled
+
+    if inWaveformShape == WaveformShape_HalfWave then
+        sh_filled = Shape()
+        sh_filled:MoveTo(0, midY)
+
+        for i = 0, imgPxW1 do
+            local x = i * scaleX -- range [0..1[
+            local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
+            sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
+            local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
+            sample = math.abs(sample)
+            local y = midY + sample * halfWaveHeightY
+            sh_filled:LineTo(x, y)
         end
-    end
 
-    -- thickness is in 1/1000th of width of the image
-    -- 8 is precision and flatten_precision (huh??)
-    sh = sh:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
- 
-    ic:ShapeFill(sh)
-    if self.Status == "OK" then
-        ic:PutToImage("CM_Merge", cs)
+        sh_filled:LineTo(imgPxW1, midY)
+        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        sh_filled:Close()
+
+        ic:ShapeFill(sh_filled)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_filled)
+        end
+        ic:ShapeFill(sh_outline)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_outline)
+        end
+    elseif inWaveformShape == WaveformShape_MirrorWave then
+        sh_filled = Shape()
+        sh_filled:MoveTo(0, midY)
+
+        for i = 0, imgPxW1 do
+            local x = i * scaleX -- range [0..1[
+            local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
+            sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
+            local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
+            sample = math.abs(sample)
+            local y = midY + sample * halfWaveHeightY
+            sh_filled:LineTo(x, y)
+        end
+
+        sh_filled:LineTo(imgPxW1, midY)
+        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        sh_filled:Close()
+
+        ic:ShapeFill(sh_filled)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_filled)
+        end
+        ic:ShapeFill(sh_outline)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_outline)
+        end
+
+        local mat = Matrix4()
+        mat:Scale(1, -1, 1)
+        mat:Move(0, midY * 2, 0)
+        sh_filled  = sh_filled:TransformOfShape(mat)
+        sh_outline = sh_outline:TransformOfShape(mat)
+        ic:ShapeFill(sh_filled)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_filled)
+        end
+        ic:ShapeFill(sh_outline)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_outline)
+        end
+
     else
-        print("@@ self.Status is NOT OK, it's " .. self.Status)
-    end
-
-    -- if self.Status == "OK" then
-    --     print("@@ self.Status is OK, it's " .. self.Status)
-    --     local y = math.floor(imgPxH / 2)
-    --     local p = Pixel({A=1})
-    --     p.R = 1
-    --     p.G = 0
-    --     p.B = 0
-    --     for x = 0, imgPxW - 1 do
-    --         outImg:SetPixel(x, y, p)
-    --     end
-    -- else
-    --     print("@@ self.Status is NOT OK, it's " .. self.Status)
-    -- end
+        -- Renders WaveformShape_SignedWave by default
+        sh_outline = Shape()
+        for i = 0, imgPxW1 do
+            local x = i * scaleX -- range [0..1[
+            local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
+            sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
+            local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
+            local y = midY + sample * halfWaveHeightY
+            if i == 0 then
+                sh_outline:MoveTo(x, y)
+            else
+                sh_outline:LineTo(x, y)
+            end
+        end
+        -- thickness is in 1/1000th of width of the image
+        -- 8 is precision and flatten_precision (huh??)
+        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        ic:ShapeFill(sh_outline)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_outline)
+        end
+   end
 
 end
 
