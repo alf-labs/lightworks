@@ -17,6 +17,7 @@ FuRegisterClass("RalfAudioVuMeter", CT_SourceTool, {
 	REG_Source_DepthCtrls = true,
 
 	REG_TimeVariant = true,
+    REG_NoPreCalcProcess = true,
 	})
 
 
@@ -178,6 +179,25 @@ function Create()
         INP_MaxScale = 100.0,
         })
 
+    _inWaveformAmpliFactor = self:AddInput("Amplitude Factor", "WaveformAmpliFactor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinAllowed = 0.0,
+        INP_MaxAllowed = 1.0,
+        INP_Default = 0.5,
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        ICD_Center = 1,
+        })
+
+    _inDisplayAmplitude = self:AddInput("Display Amplitude", "WaveformDisplayAmplitude", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_DoNotifyChanged = true,
+        INP_External = false,
+        INP_Default = 1,
+        })
+
     _inWaveformShape = self:AddInput("Shape", "WaveformShape", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ComboControl",
@@ -209,6 +229,7 @@ function Create()
         ICD_Center = 1,
         })
 
+
     -- VU Meters Parameters
 
     self:AddControlPage("VU Meters")
@@ -219,6 +240,24 @@ function Create()
         INP_DoNotifyChanged = true,
         INP_External = false,
         INP_Default = 1,
+        })
+
+    _inVuMeterDurationSeconds = self:AddInput("Loudness Duration (s)", "VuMeterDurationSeconds", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.1,
+        INP_MaxScale = 2.0,
+        INP_Default = 1,
+        ICD_Center = 1,
+        })
+
+    _inVuMeterSmoothingFactor = self:AddInput("Loudness Smoothing", "VuMeterSmoothingFactor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.5,
+        ICD_Center = 1,
         })
 
 
@@ -288,7 +327,18 @@ function Process(req)
 		outImgAttrs.IMG_Depth = SourceDepth
 	end
 
-	local outImg = Image(outImgAttrs)
+    local isPreCalc = req:IsPreCalc()   -- PreCalc -> Process with NoData Image
+    if isPreCalc then
+        -- PreCalcProcess should only return image *information*, no actual data.
+        -- Documentation: https://www.steakunderwater.com/VFXPedia/96.0.243.189/index1c2b.html
+        outImgAttrs.IMG_NoData = true
+    end
+
+    local outImg = Image(outImgAttrs)
+
+    if not isPreCalc then
+        outImg:Fill(Pixel({R=0,G=0,B=0,A=0}))
+    end
 
     -- get the frame rate of the comp set in the preferences
     local frameRate = self.Comp:GetPrefs("Comp.FrameFormat.Rate")
@@ -303,60 +353,58 @@ function Process(req)
         frameIndex = 0
     end
 
-    outImg:Fill(Pixel({R=0,G=0,B=0,A=0}))
-    local imgPxW = outImg.Width
-    local imgPxH = outImg.Height
-
-    -- read params locally
-    local infile = _inWavFile:GetValue(req).Value
-    local inLiveMonitor = _inLiveMonitor:GetValue(req).Value
-    local inDisplayWaveform = _inDisplayWaveform:GetValue(req).Value
-    local inDisplayVuMeters = _inDisplayVuMeters:GetValue(req).Value
-
     if _loadedWavSamples == nil then
+        local infile = _inWavFile:GetValue(req).Value
         readGlobalFile(infile)
     end
 
     local numSamples = numLoadedWavSamples()
-    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples" )
+    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
 
     if numSamples > 0 then
-        computeVuMeter(frameIndex, frameRate, numSamples)
+        computeVuMeter(req, frameIndex, frameRate, numSamples)
 
-        if inDisplayWaveform == 1 then
-            drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
-        end
-        if inDisplayVuMeters == 1 then
-            -- TBD
-        end
+        if not isPreCalc then
+            local inLiveMonitor = _inLiveMonitor:GetValue(req).Value
+            local inDisplayWaveform = _inDisplayWaveform:GetValue(req).Value
+            local inDisplayVuMeters = _inDisplayVuMeters:GetValue(req).Value
 
-        if inLiveMonitor == 1 then
-            _inInfoLiveMonitor:SetAttrs({
-                LINKS_Name = string.format("Monitor: %.2f dB, %.2f linear",
-                    _vuMeterDbValue, _vuMeterLinearValue),
-                LBLC_LabelColor = 3,
-        })
+            if inDisplayWaveform == 1 then
+                drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
+            end
+            if inDisplayVuMeters == 1 then
+                -- TBD
+            end
 
+            if inLiveMonitor == 1 then
+                _inInfoLiveMonitor:SetAttrs({
+                    LINKS_Name = string.format("Monitor: %.2f dB, %.2f linear",
+                        _vuMeterDbValue, _vuMeterLinearValue),
+                    LBLC_LabelColor = 3,
+            })
+
+            end
         end
     end
 
     _outImage:Set(req, outImg)
-    _outVuMeterDb:Set(req, _vuMeterDbValue)
-    _outVuMeterLinear:Set(req, _vuMeterLinearValue)
+    _outVuMeterDb:Set(req, Number(_vuMeterDbValue))
+    _outVuMeterLinear:Set(req, Number(_vuMeterLinearValue))
 end
 
-function computeVuMeter(frameIndex, frameRate, numSamples)
+function computeVuMeter(req, frameIndex, frameRate, numSamples)
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
     print("@@ computeVuMeter ", frameIndex, frameRate, numSamples)
 
-    local smoothingFactor = 0.2 -- Adjust between 0.0 and 1.0 (Lower = slower/smoother) -- TBD param
+    -- Adjust between 0.0 and 1.0 (Lower = slower/smoother) -- TBD param
+    local inVuMeterSmoothingFactor = _inVuMeterSmoothingFactor:GetValue(req).Value
+    local inVuMeterDurationSeconds = _inVuMeterDurationSeconds:GetValue(req).Value
 
     -- The index of the sample in the middle
     local midSampleIndex = toSampleIndex(frameIndex, frameRate)
-    -- Use 1 second of samples to compute the loudness factor (TBD make that a param?)
-    local endSampleIndex = math.min(midSampleIndex + _loadedSampleRate, numSamples) - 1
+    local endSampleIndex = math.min(midSampleIndex + inVuMeterDurationSeconds * _loadedSampleRate, numSamples) - 1
 
-    _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, smoothingFactor)
+    _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, inVuMeterSmoothingFactor)
 end
 
 function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
@@ -397,6 +445,8 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
     local inWaveformStrokeWidth = _inWaveformStrokeWidth:GetValue(req).Value
     local inWaveformFillAlpha = _inWaveformFillAlpha:GetValue(req).Value
+    local inWaveformAmpliFactor = _inWaveformAmpliFactor:GetValue(req).Value
+    local inDisplayAmplitude = _inDisplayAmplitude:GetValue(req).Value
 
     local imgPxW = outImg.Width
     local imgPxH = outImg.Height
@@ -407,7 +457,13 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local midY = 0.5 * rescaleY
     local thickness = inWaveformStrokeWidth
     local fillAlpha = inWaveformFillAlpha
-    local halfWaveHeightY = inWaveformHeightY * scaleY / 2
+    local fullWaveHeightY = inWaveformHeightY * scaleY
+    local halfWaveHeightY = fullWaveHeightY / 2
+
+    if inWaveformAmpliFactor > 0 and inWaveformAmpliFactor <= 1 then
+        -- inWaveformAmpliFactor is the % to _reduce_ the amplitude when the vu-meter is 0.
+        halfWaveHeightY = halfWaveHeightY * (1 - inWaveformAmpliFactor) * (1 - _vuMeterLinearValue)
+    end
 
     -- The index of the sample in the middle
     local midSampleIndex = toSampleIndex(frameIndex, frameRate)
@@ -433,6 +489,20 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local imgPxW1 = imgPxW - 1
     local sh_outline
     local sh_filled
+
+    if inDisplayAmplitude == 1 then
+        sh_outline = Shape()
+        local y = halfWaveHeightY
+        sh_outline:MoveTo(        -100, midY - y)
+        sh_outline:LineTo(imgPxW + 100, midY - y)
+        sh_outline:LineTo(imgPxW + 100, midY + y)
+        sh_outline:LineTo(        -100, midY + y)
+        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        ic:ShapeFill(sh_outline)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_outline)
+        end
+    end
 
     if inWaveformShape == WaveformShape_HalfWave then
         sh_filled = Shape()

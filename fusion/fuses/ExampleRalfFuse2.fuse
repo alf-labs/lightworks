@@ -1,0 +1,58 @@
+
+FuRegisterClass("ExampleRalfFuse2", CT_Tool, {
+    REGS_Name = "Example Ralf Fuse2",
+    REGS_Category = "Fuses",
+    REGS_OpIconString = "E1BC",
+    REGS_OpDescription = "Example2",
+    -- REG_NoPreCalcProcess is only taken into account when the Fuse is loaded the first time
+    -- (changes seem to be ignored if the Fuse is reloaded whilst in memory)
+    REG_NoPreCalcProcess = true,
+    })
+
+function Create()
+    print("Ex2 @@ Create")
+    InImage = self:AddInput("Input", "Input", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+
+    OutImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+        })
+
+    OutNumber = self:AddOutput("Number", "Number", {
+        LINKID_DataType = "Number",
+        })
+
+end
+
+function PreCalcProcess_disabled(req)
+    local time = req.Time
+    print("Ex2 @@ PreCalcProcess", req:IsPreCalc(), time)
+
+    local img = InImage:GetValue(req)
+    local out = Image({IMG_Like = img, IMG_NoData = true})
+    OutImage:Set(req, out)
+
+    -- -- The attempt to transfer data to other fuses via an input - unfortunately no calculation if AWW is not active and no time-discrete values (no GetValue) -> failed
+    -- InElongation:SetAttrs({INP_Disabled = false})           -- let in anyway :-)
+    -- InElongation:SetSource(Number(elongation),req.Time,0)
+    -- InElongation:SetAttrs({INP_Disabled = true})
+
+    OutNumber:Set(req, Number(42 + time))
+end
+
+function Process(req)
+    local time = req.Time
+    print("Ex2 @@ Process", req:IsPreCalc(), time)
+    _img = InImage:GetValue(req)
+    if req:IsPreCalc() then
+        OutNumber:Set(req, Number(42 + time))
+        local out = Image({IMG_Like = img, IMG_NoData = true})
+        OutImage:Set(req, out)
+    else
+        OutImage:Set(req, _img)
+    end
+end
+
