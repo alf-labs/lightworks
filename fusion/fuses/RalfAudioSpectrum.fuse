@@ -74,8 +74,11 @@ _loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for eas
 -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
 _loadedWavSamples = nil
 
+_vuMeterLastFrameIndex = -1
 _vuMeterDbValue = -96.0     -- the loudness value in dB
 _vuMeterLinearValue = 0     -- a [0..1] loudness value
+_vuMeterLinearMin = 1       -- a [0..1] loudness value
+_vuMeterLinearMax = 0       -- a [0..1] loudness value
 
 
 -- Note for self:
@@ -278,6 +281,12 @@ function Create()
     _outVuMeterLinear = self:AddOutput("VuMeterLinear", "VuMeterLinear", {
         LINKID_DataType = "Number",
         })
+    _outVuMeterLinearMin = self:AddOutput("VuMeterLinearMin", "VuMeterLinearMin", {
+        LINKID_DataType = "Number",
+        })
+    _outVuMeterLinearMax = self:AddOutput("VuMeterLinearMax", "VuMeterLinearMax", {
+        LINKID_DataType = "Number",
+        })
 
 end
 
@@ -359,7 +368,7 @@ function Process(req)
     end
 
     local numSamples = numLoadedWavSamples()
-    print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
+    -- print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
 
     if numSamples > 0 then
         computeVuMeter(req, frameIndex, frameRate, numSamples)
@@ -378,8 +387,9 @@ function Process(req)
 
             if inLiveMonitor == 1 then
                 _inInfoLiveMonitor:SetAttrs({
-                    LINKS_Name = string.format("Monitor: %.2f dB, %.2f linear",
-                        _vuMeterDbValue, _vuMeterLinearValue),
+                    LINKS_Name = string.format("Monitor: %.2f dB, %.3f < %.2f < %.3f linear",
+                        _vuMeterDbValue,
+                        _vuMeterLinearMin, _vuMeterLinearValue, _vuMeterLinearMax),
                     LBLC_LabelColor = 3,
             })
 
@@ -390,11 +400,18 @@ function Process(req)
     _outImage:Set(req, outImg)
     _outVuMeterDb:Set(req, Number(_vuMeterDbValue))
     _outVuMeterLinear:Set(req, Number(_vuMeterLinearValue))
+    _outVuMeterLinearMin:Set(req, Number(_vuMeterLinearMin))
+    _outVuMeterLinearMax:Set(req, Number(_vuMeterLinearMax))
 end
 
 function computeVuMeter(req, frameIndex, frameRate, numSamples)
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
-    print("@@ computeVuMeter ", frameIndex, frameRate, numSamples)
+    -- print("@@ computeVuMeter ", frameIndex, frameRate, numSamples)
+
+    if frameIndex == _vuMeterLastFrameIndex then
+        -- Avoid computing the same values twice
+        return
+    end
 
     -- Adjust between 0.0 and 1.0 (Lower = slower/smoother) -- TBD param
     local inVuMeterSmoothingFactor = _inVuMeterSmoothingFactor:GetValue(req).Value
@@ -405,11 +422,14 @@ function computeVuMeter(req, frameIndex, frameRate, numSamples)
     local endSampleIndex = math.min(midSampleIndex + inVuMeterDurationSeconds * _loadedSampleRate, numSamples) - 1
 
     _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, inVuMeterSmoothingFactor)
+    _vuMeterLinearMin = math.min(_vuMeterLinearMin, _vuMeterLinearValue)
+    _vuMeterLinearMax = math.max(_vuMeterLinearMax, _vuMeterLinearValue)
+    _vuMeterLastFrameIndex = frameIndex
 end
 
 function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
     local lenSamples = endIndex - startIndex + 1
-    print("@@ _computeVuMeter from " .. startIndex .. " to " .. endIndex .. ", len " .. lenSamples)
+    -- print("@@ _computeVuMeter from " .. startIndex .. " to " .. endIndex .. ", len " .. lenSamples)
     if lenSamples <= 0 then
         return -96.0, 0.0
     end
@@ -616,6 +636,9 @@ function toSampleIndex(frameIndex, frameRate)
 end
 
 function readGlobalFile(filename)
+    -- Reset global state
+    _vuMeterLastFrameIndex = -1
+
     local msg = _readFile(filename)
     if msg == nil then
         _loadedFileStatus = "Loaded " .. numLoadedWavSamples() .. " samples"
