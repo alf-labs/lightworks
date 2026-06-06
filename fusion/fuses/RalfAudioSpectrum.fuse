@@ -98,6 +98,7 @@ _vuMeterLinearMax = 0       -- a [0..1] loudness value
 _eqBandsLastFrameIndex = -1
 _eqBands = nil              -- initialized by _initEqBands(), filled by _computeEqBands()
 
+
 -- Note for self:
 -- Right now we load the entire WAV mono samples in memory. If we wanted to load
 -- more than memory could handle, we could change _loadedWavSamples to be loaded
@@ -409,7 +410,7 @@ function Process(req)
                 drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
             end
             if inDisplayEqBars == 1 then
-                _computeEqBands(frameIndex, frameRate, numSamples)
+                _computeEqBands(req, frameIndex, frameRate, numSamples)
                 drawEqBands(req, outImg)
             end
 
@@ -494,6 +495,7 @@ function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
 end
 
 function _computeEqBands(req, frameIndex, frameRate, numSamples)
+    print("@@ _computeEqBands", frameIndex, _eqBandsLastFrameIndex)
     if frameIndex == _eqBandsLastFrameIndex then
         -- Avoid computing the same values twice
         return
@@ -525,7 +527,7 @@ function _initEqBands()
     -- Prepare the global result array
     _eqBands = {}
 
-    for _, band in ipairs(EQ_BANDS) do
+    for idx, band in ipairs(EQ_BANDS) do
         local omega = 2 * math.pi * band.f0 / _loadedSampleRate
         local alpha = math.sin(omega) / (2 * Q)
         local cos_w = math.cos(omega)
@@ -550,8 +552,9 @@ function _initEqBands()
         band.z2 = 0.0
         band.visual_linear = 0.0
 
-        _eqBands[band.name] = 0.0
+        _eqBands[idx] = 0.0
     end
+    print("@@ _initEqBands DONE ", _eqBands, #_eqBands)
 end
 
 function _updateEqBands(startIndex, endIndex, smoothingFactor)
@@ -559,6 +562,7 @@ function _updateEqBands(startIndex, endIndex, smoothingFactor)
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
     -- Fills the global _eqBands array (initialized by _initEqBands)
 
+    print("@@ _updateEqBands ", _eqBands, startIndex, endIndex, smoothingFactor)
     if _eqBands == nil then
         _initEqBands()
     end
@@ -569,7 +573,7 @@ function _updateEqBands(startIndex, endIndex, smoothingFactor)
     end
 
     -- Process every band independently
-    for _, band in ipairs(EQ_BANDS) do
+    for idx, band in ipairs(EQ_BANDS) do
         local b0, b2, a1, a2 = band.b0, band.b2, band.a1, band.a2
         local z1, z2 = band.z1, band.z2
         local sumSquares = 0.0
@@ -602,11 +606,13 @@ function _updateEqBands(startIndex, endIndex, smoothingFactor)
         -- Apply smoothing on the EQ bars
         band.visual_linear = (smoothingFactor * rms) + ((1 - smoothingFactor) * band.visual_linear)
 
-        _eqBands[band.name] = band.visual_linear
+        _eqBands[idx] = band.visual_linear
+        print("@@ _eqBands", band.name, _eqBands[idx])
     end
 end
 
 function drawEqBands(req, outImg)
+    print("@@ drawEqBands", _eqBands)
     if _eqBands == nil then
         return
     end
@@ -615,28 +621,73 @@ function drawEqBands(req, outImg)
     local imgPxH = outImg.Height
 
     -- TBD use EQ-specific parameters later
+    -- TBD revisit params latter: X/Y coords are generally in 0..1 coords in UI
+    -- (to be resolution independant), and we might want to select the area using
+    -- 2 points anyway.
     local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
     local inWaveformStrokeWidth = _inWaveformStrokeWidth:GetValue(req).Value
     local inWaveformFillAlpha = _inWaveformFillAlpha:GetValue(req).Value
+    local inEqBandGapPx = 10 -- TBD param, gap between bands in pixels
 
     -- Shape coordinates is 0..1 in width, and 0..(H/W) in Height
     local rescaleY = imgPxH / imgPxW
     local scaleX = 1 / imgPxW
     local scaleY = scaleX
-    local baseY = 0.10 * rescaleY
+    local baseY = 0.10 * scaleY
     local thickness = inWaveformStrokeWidth
     local fillAlpha = inWaveformFillAlpha
 
-    local ic = ImageChannel(outImg, 8)  -- quality/amount of oversampling (8 in example)
+    local precision = 8  -- quality/amount of oversampling (8 in example)
+    local ic = ImageChannel(outImg, precision)
     local fs = FillStyle()
     local cs_outline = ChannelStyle()
     local cs_filled = ChannelStyle()
+    local round_corners = 0
     ic:SetStyleFill(fs)
     cs_outline.Color = Pixel({R = 1, G = 1, B = 1, A = 1})  -- make it params
     cs_filled.Color  = Pixel({R = fillAlpha, G = fillAlpha, B = fillAlpha, A = fillAlpha})
     -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
 
+    -- Reminder: all shape coordinates are in [0..1] range
+    local num_bands = #_eqBands
+    local xs = 100 * scaleX                 -- x start
+    local xe = (imgPxW - 100) * scaleX      -- x end
+    local gw = inEqBandGapPx * scaleX    -- gap between bands in pixels
+    local xw = ((xe - xs) - (num_bands - 1) * gw) / num_bands -- width of each band
+    local yh = inWaveformHeightY * scaleY
+    local y1 = baseY
+    local y2 = y1 + yh
+    print("@@   drawEqBands", num_bands, xw, gw, y1, y2)
+
+    -- Add all filled rectangles
+    local sh = Shape()
+    local x1 = xs
     for idx, visualLinear in ipairs(_eqBands) do
+        local x2 = x1 + xw
+        local y3 = y1 + yh * visualLinear
+
+        sh:AddRectangle(x1, x2, y1, y3, round_corners, precision)
+        -- next band
+        x1 = x2 + gw
+    end
+    ic:ShapeFill(sh)
+    if self.Status == "OK" then
+        ic:PutToImage("CM_Merge", cs_filled)
+    end
+
+    -- Add all outline rectangles
+    sh = Shape()
+    x1 = xs
+    for idx, visualLinear in ipairs(_eqBands) do
+        local x2 = x1 + xw
+        sh:AddRectangle(x1, x2, y1, y2, round_corners, precision)
+        -- next band
+        x1 = x2 + gw
+    end
+    sh = sh:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
+    ic:ShapeFill(sh)
+    if self.Status == "OK" then
+        ic:PutToImage("CM_Merge", cs_outline)
     end
 
 end
@@ -683,7 +734,8 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     --       ", midSampleIndex " .. midSampleIndex .. ", numSamplesPerX " .. numSamplesPerX,
     --     imgPxW * scaleX, imgPxH * scaleY, inWaveformSecondsX, _loadedSampleRate, imgPxW)
 
-    local ic = ImageChannel(outImg, 8)  -- quality/amount of oversampling (8 in example)
+    local precision = 8  -- quality/amount of oversampling (8 in example)
+    local ic = ImageChannel(outImg, precision)
     local fs = FillStyle()
     local cs_outline = ChannelStyle()
     local cs_filled = ChannelStyle()
@@ -704,7 +756,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         sh_outline:LineTo(imgPxW + 100, midY - y)
         sh_outline:LineTo(imgPxW + 100, midY + y)
         sh_outline:LineTo(        -100, midY + y)
-        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         ic:ShapeFill(sh_outline)
         if self.Status == "OK" then
             ic:PutToImage("CM_Merge", cs_outline)
@@ -726,7 +778,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         end
 
         sh_filled:LineTo(imgPxW1, midY)
-        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         sh_filled:Close()
 
         ic:ShapeFill(sh_filled)
@@ -752,7 +804,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         end
 
         sh_filled:LineTo(imgPxW1, midY)
-        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         sh_filled:Close()
 
         ic:ShapeFill(sh_filled)
@@ -795,7 +847,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         end
         -- thickness is in 1/1000th of width of the image
         -- 8 is precision and flatten_precision (huh??)
-        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", 8, "SWM_Normal", 8)
+        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         ic:ShapeFill(sh_outline)
         if self.Status == "OK" then
             ic:PutToImage("CM_Merge", cs_outline)
