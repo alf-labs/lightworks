@@ -159,7 +159,7 @@ function Create()
 
     self:AddControlPage("VU Meter")
 
-    _inVuMeterDurationSeconds = self:AddInput("Loudness Duration (s)", "VuMeterDurationSeconds", {
+    _inVuMeterDurationSeconds = self:AddInput("Sample Duration (s)", "VuMeterDurationSeconds", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.1,
@@ -168,7 +168,7 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inVuMeterSmoothingFactor = self:AddInput("Loudness Smoothing", "VuMeterSmoothingFactor", {
+    _inVuMeterSmoothingFactor = self:AddInput("Smoothing %", "VuMeterSmoothingFactor", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.0,
@@ -286,6 +286,68 @@ function Create()
         INP_DoNotifyChanged = true,
         INP_External = false,
         INP_Default = 1,
+        })
+
+    _inEqDurationSeconds = self:AddInput("Sample Duration (s)", "EqDurationSeconds", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.1,
+        INP_MaxScale = 2.0,
+        INP_Default = 1,
+        ICD_Center = 1,
+        })
+
+    _inEqSmoothingFactor = self:AddInput("Smoothing %", "EqSmoothingFactor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.5,
+        ICD_Center = 1,
+        })
+
+    _inEqCorner1Point = self:AddInput("Top Left Crop", "EqCorner1Point", {
+        LINKID_DataType = "Point",
+        INPID_InputControl = "OffsetControl",
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.05,
+        INP_DefaultY = 0.50,
+        })
+
+    _inEqCorner2Point = self:AddInput("Bottom Right Crop", "EqCorner2Point", {
+        LINKID_DataType = "Point",
+        INPID_InputControl = "OffsetControl",
+        INPID_PreviewControl = "CrosshairControl",
+        INP_DefaultX = 0.95,
+        INP_DefaultY = 0.01,
+        })
+
+    _inEqGapPercentage = self:AddInput("Gap %", "EqGapPercentage", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.25,
+        ICD_Center = 1,
+        })
+
+    _inEqStrokeWidth = self:AddInput("Stroke Width", "EqStrokeWidth", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinAllowed = 0.0,
+        INP_MinScale = 0.0,
+        INP_MaxScale = 0.01,
+        INP_Default = 0.003,
+        ICD_Center = 0.001,
+        })
+
+    _inEqFillAlpha = self:AddInput("Fill Alpha", "EqFillAlpha", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.5,
+        ICD_Center = 1,
         })
 
 
@@ -501,15 +563,14 @@ function _computeEqBands(req, frameIndex, frameRate, numSamples)
         return
     end
 
-    -- TBD make these EQ specific params
     -- Smoothing: 0 = instant/0% smoothing; 1 = 100% smoothing (won't change)
-    local inVuMeterSmoothingFactor = _inVuMeterSmoothingFactor:GetValue(req).Value
-    local inVuMeterDurationSeconds = _inVuMeterDurationSeconds:GetValue(req).Value
+    local inEqSmoothingFactor = _inEqSmoothingFactor:GetValue(req).Value
+    local inEqDurationSeconds = _inEqDurationSeconds:GetValue(req).Value
 
     -- The index of the sample in the middle
     local midSampleIndex = toSampleIndex(frameIndex, frameRate)
-    local endSampleIndex = math.min(midSampleIndex + inVuMeterDurationSeconds * _loadedSampleRate, numSamples) - 1
-    _updateEqBands(midSampleIndex, endSampleIndex, inVuMeterSmoothingFactor)
+    local endSampleIndex = math.min(midSampleIndex + inEqDurationSeconds * _loadedSampleRate, numSamples) - 1
+    _updateEqBands(midSampleIndex, endSampleIndex, inEqSmoothingFactor)
 
     _eqBandsLastFrameIndex = frameIndex
 end
@@ -554,7 +615,7 @@ function _initEqBands()
 
         _eqBands[idx] = 0.0
     end
-    print("@@ _initEqBands DONE ", _eqBands, #_eqBands)
+    -- print("@@ _initEqBands DONE ", _eqBands, #_eqBands)
 end
 
 function _updateEqBands(startIndex, endIndex, smoothingFactor)
@@ -562,7 +623,6 @@ function _updateEqBands(startIndex, endIndex, smoothingFactor)
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
     -- Fills the global _eqBands array (initialized by _initEqBands)
 
-    print("@@ _updateEqBands ", _eqBands, startIndex, endIndex, smoothingFactor)
     if _eqBands == nil then
         _initEqBands()
     end
@@ -604,38 +664,39 @@ function _updateEqBands(startIndex, endIndex, smoothingFactor)
         end
 
         -- Apply smoothing on the EQ bars
-        band.visual_linear = (smoothingFactor * rms) + ((1 - smoothingFactor) * band.visual_linear)
+        band.visual_linear = (smoothingFactor * band.visual_linear) + ((1 - smoothingFactor) * rms)
 
         _eqBands[idx] = band.visual_linear
-        print("@@ _eqBands", band.name, _eqBands[idx])
     end
 end
 
 function drawEqBands(req, outImg)
-    print("@@ drawEqBands", _eqBands)
     if _eqBands == nil then
         return
     end
 
+    -- All coordinates are in the 0..1 coordinate system, where 0..1 matches the width.
+    -- Pixels are "square", which means the height is not 0..1, but from 0 up to PxH / PxW.
     local imgPxW = outImg.Width
     local imgPxH = outImg.Height
+    local ratioY = imgPxH / imgPxW
 
-    -- TBD use EQ-specific parameters later
-    -- TBD revisit params latter: X/Y coords are generally in 0..1 coords in UI
-    -- (to be resolution independant), and we might want to select the area using
-    -- 2 points anyway.
-    local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
-    local inWaveformStrokeWidth = _inWaveformStrokeWidth:GetValue(req).Value
-    local inWaveformFillAlpha = _inWaveformFillAlpha:GetValue(req).Value
-    local inEqBandGapPx = 10 -- TBD param, gap between bands in pixels
+    local inEqCorner1Point = _inEqCorner1Point:GetValue(req)
+    local inEqCorner2Point = _inEqCorner2Point:GetValue(req)
+    local inEqGapPercentage = _inEqGapPercentage:GetValue(req).Value
+    local inEqStrokeWidth = _inEqStrokeWidth:GetValue(req).Value
+    local inEqFillAlpha = _inEqFillAlpha:GetValue(req).Value
 
-    -- Shape coordinates is 0..1 in width, and 0..(H/W) in Height
-    local rescaleY = imgPxH / imgPxW
-    local scaleX = 1 / imgPxW
-    local scaleY = scaleX
-    local baseY = 0.10 * scaleY
-    local thickness = inWaveformStrokeWidth
-    local fillAlpha = inWaveformFillAlpha
+    local areaX1 = math.min(inEqCorner1Point.X, inEqCorner2Point.X)
+    local areaX2 = math.max(inEqCorner1Point.X, inEqCorner2Point.X)
+    local areaY1 = math.min(inEqCorner1Point.Y, inEqCorner2Point.Y) * ratioY
+    local areaY2 = math.max(inEqCorner1Point.Y, inEqCorner2Point.Y) * ratioY
+    local areaW = areaX2 - areaX1
+    local areaH = areaY2 - areaY1
+
+    local baseY = areaY1
+    local thickness = inEqStrokeWidth
+    local fillAlpha = inEqFillAlpha
 
     local precision = 8  -- quality/amount of oversampling (8 in example)
     local ic = ImageChannel(outImg, precision)
@@ -650,21 +711,19 @@ function drawEqBands(req, outImg)
 
     -- Reminder: all shape coordinates are in [0..1] range
     local num_bands = #_eqBands
-    local xs = 100 * scaleX                 -- x start
-    local xe = (imgPxW - 100) * scaleX      -- x end
-    local gw = inEqBandGapPx * scaleX    -- gap between bands in pixels
-    local xw = ((xe - xs) - (num_bands - 1) * gw) / num_bands -- width of each band
-    local yh = inWaveformHeightY * scaleY
-    local y1 = baseY
-    local y2 = y1 + yh
-    print("@@   drawEqBands", num_bands, xw, gw, y1, y2)
+    -- gap between bands
+    local gw = areaW * inEqGapPercentage / math.max(1, (num_bands - 1))
+    -- width of each band
+    local xw = (areaW * (1 - inEqGapPercentage)) / num_bands
+    local y1 = areaY1
+    local y2 = areaY2
 
     -- Add all filled rectangles
     local sh = Shape()
-    local x1 = xs
+    local x1 = areaX1
     for idx, visualLinear in ipairs(_eqBands) do
         local x2 = x1 + xw
-        local y3 = y1 + yh * visualLinear
+        local y3 = y1 + areaH * visualLinear
 
         sh:AddRectangle(x1, x2, y1, y3, round_corners, precision)
         -- next band
@@ -677,7 +736,7 @@ function drawEqBands(req, outImg)
 
     -- Add all outline rectangles
     sh = Shape()
-    x1 = xs
+    x1 = areaX1
     for idx, visualLinear in ipairs(_eqBands) do
         local x2 = x1 + xw
         sh:AddRectangle(x1, x2, y1, y2, round_corners, precision)
