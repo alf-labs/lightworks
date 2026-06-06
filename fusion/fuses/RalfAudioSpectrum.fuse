@@ -75,7 +75,7 @@ _loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for eas
 _loadedWavSamples = nil
 
 _vuMeterLastFrameIndex = -1
-_vuMeterDbValue = -96.0     -- the loudness value in dB
+_vuMeterDbValue = -96.0     -- -96 dBFS is the theorical minimum for an audio CD 44100 Hz 16-bit signal
 _vuMeterLinearValue = 0     -- a [0..1] loudness value
 _vuMeterLinearMin = 1       -- a [0..1] loudness value
 _vuMeterLinearMax = 0       -- a [0..1] loudness value
@@ -274,6 +274,8 @@ function Create()
         LINK_Main = 1,
         })
 
+    -- Nitpick: the unit is really dBFS (dB full signal) and not "dB" which is a _relative_ measure.
+    -- Also, I'm annoyed that the CamelCasing makes that "Db" instead of "dB". Just saying.
     _outVuMeterDb = self:AddOutput("VuMeterDb", "VuMeterDb", {
         LINKID_DataType = "Number",
         })
@@ -413,7 +415,7 @@ function computeVuMeter(req, frameIndex, frameRate, numSamples)
         return
     end
 
-    -- Adjust between 0.0 and 1.0 (Lower = slower/smoother) -- TBD param
+    -- Smoothing: 0 = instant/0% smoothing; 1 = 100% smoothing (won't change)
     local inVuMeterSmoothingFactor = _inVuMeterSmoothingFactor:GetValue(req).Value
     local inVuMeterDurationSeconds = _inVuMeterDurationSeconds:GetValue(req).Value
 
@@ -422,8 +424,21 @@ function computeVuMeter(req, frameIndex, frameRate, numSamples)
     local endSampleIndex = math.min(midSampleIndex + inVuMeterDurationSeconds * _loadedSampleRate, numSamples) - 1
 
     _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, inVuMeterSmoothingFactor)
-    _vuMeterLinearMin = math.min(_vuMeterLinearMin, _vuMeterLinearValue)
-    _vuMeterLinearMax = math.max(_vuMeterLinearMax, _vuMeterLinearValue)
+    if frameIndex == 0 then
+        -- Reset min/max if starting to play from the beginning.
+        _vuMeterLinearMin = _vuMeterLinearValue
+        _vuMeterLinearMax = _vuMeterLinearValue
+    else
+        _vuMeterLinearMin = math.min(_vuMeterLinearMin, _vuMeterLinearValue)
+        if _vuMeterLinearValue >= _vuMeterLinearMax then
+            _vuMeterLinearMax = _vuMeterLinearValue
+        else
+            -- smoothing decay of the max value towards current value
+            -- TBD revisit this decay to be time-based, or make a it param. Current one is nice at 30 fps.
+            local smoothingDecay = 0.99
+            _vuMeterLinearMax = smoothingDecay * _vuMeterLinearMax + (1 - smoothingDecay) * _vuMeterLinearValue
+        end
+    end
     _vuMeterLastFrameIndex = frameIndex
 end
 
@@ -442,15 +457,11 @@ function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
     end
 
     local rms = math.sqrt(sumSquares / lenSamples)
-    linearValue = (smoothingFactor * rms) + ((1 - smoothingFactor) * linearValue)
+    linearValue = smoothingFactor * linearValue + (1 - smoothingFactor) * rms
 
     local currentDb = -96.0
     if linearValue > 0.00001 then
         currentDb = 20 * math.log10(linearValue)
-    end
-
-    if currentDb < -60 then
-        currentDb = -60
     end
 
     return currentDb, linearValue
@@ -482,7 +493,8 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
 
     if inWaveformAmpliFactor > 0 and inWaveformAmpliFactor <= 1 then
         -- inWaveformAmpliFactor is the % to _reduce_ the amplitude when the vu-meter is 0.
-        halfWaveHeightY = halfWaveHeightY * (1 - inWaveformAmpliFactor) * (1 - _vuMeterLinearValue)
+        local reduction = 1 - _vuMeterLinearValue / math.max(_vuMeterLinearMax, 0.1)
+        halfWaveHeightY = halfWaveHeightY - halfWaveHeightY * inWaveformAmpliFactor * reduction
     end
 
     -- The index of the sample in the middle
