@@ -60,6 +60,21 @@ local WaveformShape_SignedWave = 0
 local WaveformShape_HalfWave = 1
 local WaveformShape_MirrorWave = 2
 
+-- 9 standard octave bands tracking frequencies up to ~16kHz
+local EQ_BANDS = {
+    { name = "Sub-Bass", f0 = 31.25 },
+    { name = "Bass",     f0 = 62.5  },
+    { name = "Low-Mid",  f0 = 125.0 },
+    { name = "Mid",      f0 = 250.0 },
+    { name = "Mid-High", f0 = 500.0 },
+    { name = "Presence", f0 = 1000.0},
+    { name = "Brilliance",f0 = 2000.0},
+    { name = "Highs 1",  f0 = 4000.0},
+    { name = "Highs 2",  f0 = 8000.0},
+}
+
+-- Filter Ballistics (Smoothing for the EQ bars, TBD make params)
+local eqSmoothingFactor = 0.25
 
 -- ///////////// GLOBALS ///////////////
 -- Globals persist between Process calls once the Fuse plugin is loaded.
@@ -112,14 +127,6 @@ function Create()
         BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
         })
 
-    _inLiveMonitor = self:AddInput("Live Monitor", "LiveMonitor", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "CheckboxControl",
-        INP_DoNotifyChanged = true,
-        INP_External = false,
-        INP_Default = 1,
-        })
-
     -- INFO printfs
     self:AddInput(string.rep("_", 52), "InfoSeparator", {
         LINKID_DataType = "Text",
@@ -144,13 +151,45 @@ function Create()
         ICD_Width          = 1,
         })
 
-    _inInfoLiveMonitor = self:AddInput("Monitor: n/a", "InfoLiveMonitor", {
+
+    -- VU Meter Parameters
+
+    self:AddControlPage("VU Meter")
+
+    _inVuMeterDurationSeconds = self:AddInput("Loudness Duration (s)", "VuMeterDurationSeconds", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.1,
+        INP_MaxScale = 2.0,
+        INP_Default = 1,
+        ICD_Center = 1,
+        })
+
+    _inVuMeterSmoothingFactor = self:AddInput("Loudness Smoothing", "VuMeterSmoothingFactor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.5,
+        ICD_Center = 1,
+        })
+
+    _inVuMeterLiveMonitor = self:AddInput("Live Monitor", "VuMeterLiveMonitor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_DoNotifyChanged = true,
+        INP_External = false,
+        INP_Default = 1,
+        })
+
+    _inInfoVuMeterLiveMonitor = self:AddInput("Monitor: n/a", "InfoVuMeterLiveMonitor", {
         LINKID_DataType    = "Text",
         INPID_InputControl = "LabelControl",
         INP_External       = false,
         INP_Passive        = true,
         ICD_Width          = 1,
         })
+
 
     -- Waveform Parameters
 
@@ -233,11 +272,12 @@ function Create()
         })
 
 
-    -- VU Meters Parameters
 
-    self:AddControlPage("VU Meters")
+    -- Graphic Equalizer Bars Parameters
 
-    _inDisplayVuMeters = self:AddInput("Display Vu Meters", "VuMetersDisplay", {
+    self:AddControlPage("EQ Bars")
+
+    _inDisplayEqBars = self:AddInput("Display EQ Bars", "EqDisplay", {
         LINKID_DataType = "Number",
         INPID_InputControl = "CheckboxControl",
         INP_DoNotifyChanged = true,
@@ -245,28 +285,11 @@ function Create()
         INP_Default = 1,
         })
 
-    _inVuMeterDurationSeconds = self:AddInput("Loudness Duration (s)", "VuMeterDurationSeconds", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "SliderControl",
-        INP_MinScale = 0.1,
-        INP_MaxScale = 2.0,
-        INP_Default = 1,
-        ICD_Center = 1,
-        })
-
-    _inVuMeterSmoothingFactor = self:AddInput("Loudness Smoothing", "VuMeterSmoothingFactor", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "SliderControl",
-        INP_MinScale = 0.0,
-        INP_MaxScale = 1.0,
-        INP_Default = 0.5,
-        ICD_Center = 1,
-        })
-
 
     --
     -- AddOutput("User Visible Name", "InternalScriptName")
     -- It seems the first one is shown in menus, the second one in e.g. expressions.
+    -- Using the same makes it easier to know the expression name to use.
     --
 
     _outImage = self:AddOutput("Output", "Output", {
@@ -376,19 +399,19 @@ function Process(req)
         computeVuMeter(req, frameIndex, frameRate, numSamples)
 
         if not isPreCalc then
-            local inLiveMonitor = _inLiveMonitor:GetValue(req).Value
+            local inLiveMonitor     = _inVuMeterLiveMonitor:GetValue(req).Value
             local inDisplayWaveform = _inDisplayWaveform:GetValue(req).Value
-            local inDisplayVuMeters = _inDisplayVuMeters:GetValue(req).Value
+            local inDisplayEqBars = _inDisplayEqBars:GetValue(req).Value
 
             if inDisplayWaveform == 1 then
                 drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
             end
-            if inDisplayVuMeters == 1 then
+            if inDisplayEqBars == 1 then
                 -- TBD
             end
 
             if inLiveMonitor == 1 then
-                _inInfoLiveMonitor:SetAttrs({
+                _inInfoVuMeterLiveMonitor:SetAttrs({
                     LINKS_Name = string.format("Monitor: %.2f dB, %.3f < %.2f < %.3f linear",
                         _vuMeterDbValue,
                         _vuMeterLinearMin, _vuMeterLinearValue, _vuMeterLinearMax),
@@ -473,6 +496,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local inWaveformShape = _inWaveformShape:GetValue(req).Value
     -- How many seconds we represent on the X axis
     local inWaveformSecondsX = _inWaveformSecondsX:GetValue(req).Value
+    -- TBD add parameter for mid Y (Y value or control point)
     local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
     local inWaveformStrokeWidth = _inWaveformStrokeWidth:GetValue(req).Value
     local inWaveformFillAlpha = _inWaveformFillAlpha:GetValue(req).Value
