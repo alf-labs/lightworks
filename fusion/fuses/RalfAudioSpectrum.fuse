@@ -210,18 +210,25 @@ function Create()
     _inWaveformSecondsX = self:AddInput("Seconds X", "WaveformSecondsX", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ScrewControl",
-        INP_Default = 0.5,
+        INP_Default = 1.0,
         INP_MinScale = 0.0,
         INP_MaxScale = 10.0,
         })
 
-    -- Height in pixels for the waveform
-    _inWaveformHeightY = self:AddInput("Height Y", "WaveformHeightY", {
-        LINKID_DataType = "Number",
-        INPID_InputControl = "ScrewControl",
-        INP_Default = 600.0,
-        INP_MinScale = 0.0,
-        INP_MaxScale = 100.0,
+    _inWaveformCorner1Point = self:AddInput("Top Left Crop", "WaveformCorner1Point", {
+        LINKID_DataType = "Point",
+        INPID_InputControl = "OffsetControl",
+        INPID_PreviewControl = "CrosshairControl", -- Display Control
+        INP_DefaultX = 0.05,
+        INP_DefaultY = 0.70,
+        })
+
+    _inWaveformCorner2Point = self:AddInput("Bottom Right Crop", "WaveformCorner2Point", {
+        LINKID_DataType = "Point",
+        INPID_InputControl = "OffsetControl",
+        INPID_PreviewControl = "CrosshairControl",
+        INP_DefaultX = 0.95,
+        INP_DefaultY = 0.30,
         })
 
     _inWaveformAmpliFactor = self:AddInput("Amplitude Factor", "WaveformAmpliFactor", {
@@ -557,7 +564,6 @@ function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
 end
 
 function _computeEqBands(req, frameIndex, frameRate, numSamples)
-    print("@@ _computeEqBands", frameIndex, _eqBandsLastFrameIndex)
     if frameIndex == _eqBandsLastFrameIndex then
         -- Avoid computing the same values twice
         return
@@ -694,7 +700,6 @@ function drawEqBands(req, outImg)
     local areaW = areaX2 - areaX1
     local areaH = areaY2 - areaY1
 
-    local baseY = areaY1
     local thickness = inEqStrokeWidth
     local fillAlpha = inEqFillAlpha
 
@@ -754,27 +759,46 @@ end
 function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
 
+    -- All coordinates are in the 0..1 coordinate system, where 0..1 matches the width.
+    -- Pixels are "square", which means the height is not 0..1, but from 0 up to PxH / PxW.
+    local imgPxW = outImg.Width
+    local imgPxH = outImg.Height
+    local ratioY = imgPxH / imgPxW
+    local scaleX = 1 / imgPxW -- converts from pixels to [0..1] coordinates
+
     local inWaveformShape = _inWaveformShape:GetValue(req).Value
     -- How many seconds we represent on the X axis
     local inWaveformSecondsX = _inWaveformSecondsX:GetValue(req).Value
-    -- TBD add parameter for mid Y (Y value or control point)
-    local inWaveformHeightY = _inWaveformHeightY:GetValue(req).Value
+    local inWaveformCorner1Point = _inWaveformCorner1Point:GetValue(req)
+    local inWaveformCorner2Point = _inWaveformCorner2Point:GetValue(req)
     local inWaveformStrokeWidth = _inWaveformStrokeWidth:GetValue(req).Value
     local inWaveformFillAlpha = _inWaveformFillAlpha:GetValue(req).Value
     local inWaveformAmpliFactor = _inWaveformAmpliFactor:GetValue(req).Value
     local inDisplayAmplitude = _inDisplayAmplitude:GetValue(req).Value
 
-    local imgPxW = outImg.Width
-    local imgPxH = outImg.Height
-    -- Shape coordinates is 0..1 in width, and 0..(H/W) in Height
-    local rescaleY = imgPxH / imgPxW
-    local scaleX = 1 / imgPxW
-    local scaleY = scaleX
-    local midY = 0.5 * rescaleY
+    local areaX1 = math.min(inWaveformCorner1Point.X, inWaveformCorner2Point.X)
+    local areaX2 = math.max(inWaveformCorner1Point.X, inWaveformCorner2Point.X)
+    local areaY1 = math.min(inWaveformCorner1Point.Y, inWaveformCorner2Point.Y) * ratioY
+    local areaY2 = math.max(inWaveformCorner1Point.Y, inWaveformCorner2Point.Y) * ratioY
+    local areaW = areaX2 - areaX1
+    local areaPxW = math.floor(areaW * imgPxW)
+    local areaH = areaY2 - areaY1
+
+    if areaPxW < 2 then
+        return
+    end
+
     local thickness = inWaveformStrokeWidth
     local fillAlpha = inWaveformFillAlpha
-    local fullWaveHeightY = inWaveformHeightY * scaleY
-    local halfWaveHeightY = fullWaveHeightY / 2
+    local x0 = areaX1
+    local y0 = (areaY1 + areaY2) / 2
+    local areaPxW1 = areaPxW - 1
+    local fullWaveHeightY = areaH
+    local halfWaveHeightY = areaH / 2
+    if inWaveformShape == WaveformShape_HalfWave then
+        y0 = areaY1
+        halfWaveHeightY = fullWaveHeightY
+    end
 
     if inWaveformAmpliFactor > 0 and inWaveformAmpliFactor <= 1 then
         -- inWaveformAmpliFactor is the % to _reduce_ the amplitude when the vu-meter is 0.
@@ -786,12 +810,8 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     local midSampleIndex = toSampleIndex(frameIndex, frameRate)
     -- We display inWaveformSecondsX numbers of seconds on the img width,
     -- so half before and half after. Convert that to number of samples.
-    local numSamplesHalfWidth = inWaveformSecondsX * _loadedSampleRate / 2
-    local numSamplesPerX = inWaveformSecondsX * _loadedSampleRate / imgPxW
-
-    -- print("@@ drawWaveform midY " .. midY .. ", halfWaveHeightY " .. halfWaveHeightY ..
-    --       ", midSampleIndex " .. midSampleIndex .. ", numSamplesPerX " .. numSamplesPerX,
-    --     imgPxW * scaleX, imgPxH * scaleY, inWaveformSecondsX, _loadedSampleRate, imgPxW)
+    local numSamplesPerPx = inWaveformSecondsX * _loadedSampleRate / areaPxW1
+    local numHalfSamples  = inWaveformSecondsX * _loadedSampleRate / 2
 
     local precision = 8  -- quality/amount of oversampling (8 in example)
     local ic = ImageChannel(outImg, precision)
@@ -804,17 +824,18 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
 
     numSamples = numSamples - 1
-    local imgPxW1 = imgPxW - 1
     local sh_outline
     local sh_filled
 
     if inDisplayAmplitude == 1 then
         sh_outline = Shape()
         local y = halfWaveHeightY
-        sh_outline:MoveTo(        -100, midY - y)
-        sh_outline:LineTo(imgPxW + 100, midY - y)
-        sh_outline:LineTo(imgPxW + 100, midY + y)
-        sh_outline:LineTo(        -100, midY + y)
+        sh_outline:MoveTo(areaX1, y0 + y)
+        sh_outline:LineTo(areaX2, y0 + y)
+        if inWaveformShape ~= WaveformShape_HalfWave then
+            sh_outline:MoveTo(areaX1, y0 - y)
+            sh_outline:LineTo(areaX2, y0 - y)
+        end
         sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         ic:ShapeFill(sh_outline)
         if self.Status == "OK" then
@@ -824,19 +845,19 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
 
     if inWaveformShape == WaveformShape_HalfWave then
         sh_filled = Shape()
-        sh_filled:MoveTo(0, midY)
+        sh_filled:MoveTo(x0, y0)
 
-        for i = 0, imgPxW1 do
-            local x = i * scaleX -- range [0..1[
-            local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
+        for px = 0, areaPxW1 do
+            local x = x0 + px * scaleX
+            local sampleIndex = midSampleIndex + numSamplesPerPx * px - numHalfSamples
             sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
             local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
             sample = math.abs(sample)
-            local y = midY + sample * halfWaveHeightY
+            local y = y0 + sample * halfWaveHeightY
             sh_filled:LineTo(x, y)
         end
 
-        sh_filled:LineTo(imgPxW1, midY)
+        sh_filled:LineTo(areaX2, y0)
         sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         sh_filled:Close()
 
@@ -850,19 +871,19 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         end
     elseif inWaveformShape == WaveformShape_MirrorWave then
         sh_filled = Shape()
-        sh_filled:MoveTo(0, midY)
+        sh_filled:MoveTo(x0, y0)
 
-        for i = 0, imgPxW1 do
-            local x = i * scaleX -- range [0..1[
-            local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
+        for px = 0, areaPxW1 do
+            local x = x0 + px * scaleX
+            local sampleIndex = midSampleIndex + numSamplesPerPx * px - numHalfSamples
             sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
             local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
             sample = math.abs(sample)
-            local y = midY + sample * halfWaveHeightY
+            local y = y0 + sample * halfWaveHeightY
             sh_filled:LineTo(x, y)
         end
 
-        sh_filled:LineTo(imgPxW1, midY)
+        sh_filled:LineTo(areaX2, y0)
         sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         sh_filled:Close()
 
@@ -877,7 +898,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
 
         local mat = Matrix4()
         mat:Scale(1, -1, 1)
-        mat:Move(0, midY * 2, 0)
+        mat:Move(0, y0 * 2, 0)
         sh_filled  = sh_filled:TransformOfShape(mat)
         sh_outline = sh_outline:TransformOfShape(mat)
         ic:ShapeFill(sh_filled)
@@ -892,12 +913,12 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     else
         -- Renders WaveformShape_SignedWave by default
         sh_outline = Shape()
-        for i = 0, imgPxW1 do
-            local x = i * scaleX -- range [0..1[
-            local sampleIndex = midSampleIndex + numSamplesHalfWidth * (x - 0.5)
+        for px = 0, areaPxW1 do
+            local x = x0 + px * scaleX
+            local sampleIndex = midSampleIndex + numSamplesPerPx * px - numHalfSamples
             sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
             local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
-            local y = midY + sample * halfWaveHeightY
+            local y = y0 + sample * halfWaveHeightY
             if i == 0 then
                 sh_outline:MoveTo(x, y)
             else
