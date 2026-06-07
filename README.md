@@ -8,13 +8,13 @@
 This Fuse detects and removes the gray rod from a camera car attached to HO model trains.
 
 
-Fuse: [`RalfCamCarRodRemoval.fuse`](./fusion/fuses/RalfCamCarRodRemoval.fuse)
+Fuse: [`RalfCamCarRodRemoval.fuse`](./fusion/rod_removal/RalfCamCarRodRemoval.fuse)
 
 <p align="center">
 <img title="Example of RalfCamCarRodRemoval render" src="./fusion/images/rod_fuse_result.jpg" >
 </p>
 
-Description: [RalfCamCarRodRemoval.md](./fusion/fuses/RalfCamCarRodRemoval.md) for full details.
+Description: [RalfCamCarRodRemoval.md](./fusion/rod_removal/RalfCamCarRodRemoval.md) for full details.
 
 ---
 
@@ -23,13 +23,13 @@ Description: [RalfCamCarRodRemoval.md](./fusion/fuses/RalfCamCarRodRemoval.md) f
 This Fuse essentially recreates a custom-made Difference Keyer combined with a Merge node.
 It's a direct recreation in Fusion of the [LightWorks FX Shader](#ralf-delta-mask-blend-fx-shader) I wrote years ago.
 
-Fuse: [`RalfDeltaMask.fuse`](./fusion/fuses/RalfDeltaMask.fuse)
+Fuse: [`RalfDeltaMask.fuse`](./fusion/delta_mask/RalfDeltaMask.fuse)
 
 <p align="center">
 <img title="Example of Ralf Delta Mask render" src="./fusion/images/mask_operation1.jpg" >
 </p>
 
-Description: [RalfDeltaMask.md](./fusion/fuses/RalfDeltaMask.md) for full details.
+Description: [RalfDeltaMask.md](./fusion/delta_mask/RalfDeltaMask.md) for full details.
 
 ---
 
@@ -72,7 +72,7 @@ Bear with me here:
   with it.
   The generated stabilized script is imported in LightWorks.
 * [`LWAppNet.sh`](./lightworks/scripts/LWAppNet.sh) extracts the parameters from a
-  LightWorks "external processing" node and then generates a "Composition" for 
+  LightWorks "external processing" node and then generates a "Composition" for
   [DaVinci Fusion 8](https://www.blackmagicdesign.com/products/davinciresolve/fusion)
   (back then it wasn't integrated in [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve) yet.) Then it sets up everything so that the result of
   Fusion is directly usable in LightWorks.
@@ -96,7 +96,7 @@ directly. Well, that's where we get the last piece of the puzzle:
   using Cygwin.
 
 Thus the workflow is LightWorks > select a clip > Add > Effect > Plugins > "LW App Net",
-and then we have a fun chain of trampolines: 
+and then we have a fun chain of trampolines:
 LightWorks executes `LWAppNet.exe`
 which executes `cmd /c LWAppNet.bat`
 which executes Cygwin with `bash -i ~/bin/LWAppNet.sh`.
