@@ -88,6 +88,7 @@ _loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for eas
 -- Use _loadedWavSamples[index] to get signed int16 values.
 -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
 _loadedWavSamples = nil
+_wavOffsetSamples = -1
 
 _vuMeterLastFrameIndex = -1
 _vuMeterDbValue = -96.0     -- -96 dBFS is the theorical minimum for an audio CD 44100 Hz 16-bit signal
@@ -127,7 +128,16 @@ function Create()
         INPID_InputControl =  "ButtonControl",
         INP_DoNotifyChanged  = true,
         INP_External = false,
+        ICD_Width = 0.5,
         BTNCS_Execute = "tool.ScriptReload[fu.TIME_UNDEFINED] = 1",
+        })
+
+    _inWavOffsetSeconds = self:AddInput("Offset (seconds)", "PlaybackOffsetSeconds", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ScrewControl",
+        INP_Default = 0.0,
+        INP_MinScale = 0.0,
+        INP_MaxScale = 10.0,
         })
 
     -- INFO printfs
@@ -393,6 +403,8 @@ function NotifyChanged(inp, param, time)
     if inp ~= nil and param ~= nil then
         if inp == _inWavFile then
             readGlobalFile(param.Value)
+        elseif inp == _inWavOffsetSeconds then
+            _wavOffsetSamples = -1
         end
     end
 
@@ -466,6 +478,12 @@ function Process(req)
 
     local numSamples = numLoadedWavSamples()
     -- print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
+
+    if _wavOffsetSamples < 0 then
+        local inWavOffsetSeconds = _inWavOffsetSeconds:GetValue(req).Value
+        _wavOffsetSamples = math.max(0, math.min(numSamples, math.floor(inWavOffsetSeconds * _loadedSampleRate)))
+        print("@@ Offset " .. inWavOffsetSeconds .. " seconds = " .. _wavOffsetSamples .. " samples @ " .. _loadedSampleRate .. "/s")
+    end
 
     if numSamples > 0 then
         computeVuMeter(req, frameIndex, frameRate, numSamples)
@@ -947,11 +965,12 @@ end
 function toSampleIndex(frameIndex, frameRate)
     -- Returns the sample index matching that frameIndex or 0 if invalid.
     -- This does not check for index max bound.
+    local offset = _wavOffsetSamples
     if _loadedWavSamples == nil or frameIndex < 0 then
-        return 0
+        return offset
     end
     local seconds = frameIndex / frameRate
-    return math.floor(seconds * _loadedSampleRate)
+    return math.floor(offset + seconds * _loadedSampleRate)
 end
 
 function readGlobalFile(filename)
@@ -961,7 +980,7 @@ function readGlobalFile(filename)
 
     local msg = _readFile(filename)
     if msg == nil then
-        _loadedFileStatus = "Loaded " .. numLoadedWavSamples() .. " samples"
+        _loadedFileStatus = string.format("%d samples, %d/s", numLoadedWavSamples(), _loadedSampleRate)
         _loadedFileName = filename
         _inInfoFileName:SetAttrs({
             LINKS_Name = getBasename(_loadedFileName),
@@ -1035,6 +1054,7 @@ function _readFile(filename)
             local fmt = ffi.cast("WAV_FMT_Chunk*", fmt_data)
             _loadedWavFormat = fmt
             _loadedSampleRate = fmt.sampleRate
+            _wavOffsetSamples = -1
             _initEqBands()
 
             channels = fmt.numChannels
