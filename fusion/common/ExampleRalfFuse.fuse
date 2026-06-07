@@ -1,3 +1,9 @@
+--
+-- License: MIT
+-- SPDX-License-Identifier: MIT
+-- Copyright (c) 2023 Alf-Labs
+--
+
 FuRegisterClass("ExampleRalfFuse", CT_Tool, {
     REGS_Name = "Example_Ralf_Fuse",
     REGS_Category = "Transform",
@@ -130,7 +136,7 @@ function Create()
         LINK_Main = 1,
         })
 end
- 
+
 function Process(req)
     _tp = Pixel()
     _img = InImage:GetValue(req)
@@ -175,7 +181,7 @@ function Process(req)
     _cy = math.floor(Clamp(center.Y, 0, 1) * _ih1)
     _cy = Clamp(_cy, _fillh1, _fillh2)
     _tmp:GetPixel(_cx, _cy, _tp)
-    
+
     Lref = _tp.G  -- (R=H, G=L, B=S)
     _x1 = math.max(0, _cx - _fillw)
     _x2 = math.min(_iw1, _cx + _fillw)
@@ -222,11 +228,11 @@ function Method0(Lmin, Lmax, Ldelta)
             Lval = _tp.G  -- (R=H, G=L, B=S)
             Lval = (Lval - Lmin) / Ldelta -- reshape to min/max
             if math.abs(Lval - Lref) < _Lthreshold then
-                _tp.R = Lval * 10 
+                _tp.R = Lval * 10
                 _tp.G = 0
                 _tp.B = 0
                 _out:SetPixel(x, y, _tp)
-            else 
+            else
                 _img:GetPixel(x, y, _tp)
                 _tp.R = _tp.R / 2
                 _tp.G = _tp.G / 2
@@ -388,7 +394,7 @@ function FillLine(xStart, xEnd, dy)
             a1 = 1 - a2
             Merge2(x + xStart, dy, ah, a1, p1, a2, p2)
         end
-        
+
         for x = 0, _borderw - 1 do
             a2 = 1 - Smoothstep(x / _borderw)
             Merge1(x + xEnd + 1, dy, ah * a2, p2)
@@ -419,7 +425,7 @@ function Merge1(x, y, a, p)
     _tp.R = p.R * a + _tp.R * b
     _tp.G = p.G * a + _tp.G * b
     _tp.B = p.B * a + _tp.B * b
-    
+
     _out:SetPixel(x, y, _tp)
 end
 

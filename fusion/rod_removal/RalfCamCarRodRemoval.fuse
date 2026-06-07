@@ -1,4 +1,9 @@
 --
+-- Name: RalfCamCarRodRemoval
+-- License: MIT
+-- SPDX-License-Identifier: MIT
+-- Copyright (c) 2023 Alf-Labs
+--
 -- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 -- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 --
@@ -46,7 +51,7 @@ function Create()
         INP_Default = 0.02,
         ICD_Center = 1,
         })
-    
+
     _inLumaThreshold = self:AddInput("Luma Delta", "LumaThreshold", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -73,7 +78,7 @@ function Create()
         INP_Default = 0.0,
         ICD_Center = 1,
         })
-    
+
     _inFillStaticW = self:AddInput("Fill Static Width", "FillStaticWidth", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -199,7 +204,7 @@ function Process(req)
     _originPxY = math.floor(Clamp(originPt.Y, 0, 1) * _imgPxH1)
     _originPxY = Clamp(_originPxY, _fillBottomPxY, _fillTopPxY)
     _tmp:GetPixel(_originPxX, _originPxY, _tp)
-    
+
     _lumaRef = _tp.G  -- (R=H, G=L, B=S)
     _scanStartPxX = Clamp(_originPxX - _fillScanPxW, 0, _imgPxW1)
     _scanEndPxX = Clamp(_originPxX + _fillScanPxW, _scanStartPxX, _imgPxW1)
@@ -522,7 +527,7 @@ function FillLine(xStart, xEnd, dy, isInterp)
             local a2 = (balance - 0.5) * 2
             local a1 = 1 - a2
             -- p1 = p1 * a1 + p2 * a2
-            MixPixel(p2, a2, p1, a1)            
+            MixPixel(p2, a2, p1, a1)
         end
 
         local ah = 1.0
@@ -609,7 +614,7 @@ function Merge1(x, y, a, p)
     _tp.R = p.R * a + _tp.R * b
     _tp.G = p.G * a + _tp.G * b
     _tp.B = p.B * a + _tp.B * b
-    
+
     _out:SetPixel(x, y, _tp)
 end
 

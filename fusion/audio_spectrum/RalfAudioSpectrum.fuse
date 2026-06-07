@@ -1,13 +1,18 @@
 --
+-- Name: RalfAudioSpectrum
+-- License: MIT
+-- SPDX-License-Identifier: MIT
+-- Copyright (c) 2026 Alf-Labs
+--
 -- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 -- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 --
 
 local ffi = require("ffi")
 
-FuRegisterClass("RalfAudioVuMeter", CT_SourceTool, {
-    REGS_Name               = "Ralf Audio Vu Meter",
-    REGS_OpDescription      = "Ralf Audio Meter",
+FuRegisterClass("RalfAudioSpectrum", CT_SourceTool, {
+    REGS_Name               = "Ralf Audio Spectrum",
+    REGS_OpDescription      = "Ralf Audio Spectrum",
 	REGS_Category = "Generator",
 	REGS_OpIconString = "fSc",
 

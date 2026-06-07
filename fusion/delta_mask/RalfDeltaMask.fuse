@@ -1,7 +1,12 @@
 --
+-- Name: RalfDeltaMask
+-- License: MIT
+-- SPDX-License-Identifier: MIT
+-- Copyright (c) 2026 Alf-Labs
+--
 -- To install, copy this in %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
 -- aka C:\Users\%USERNAME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses
--- 
+--
 
 FuRegisterClass("RalfDeltaMask", CT_Tool, {
     REGS_Name = "Ralf Delta Mask",
@@ -224,12 +229,12 @@ function Process(req)
         -- otherwise it's 0..1 to match the size of the source image.
         _tmp = Image({IMG_Like = _imgFg})
         _matte:Blur(_tmp, {
-			BLUR_Type = "Gaussian", 
+			BLUR_Type = "Gaussian",
 			BLUR_Red = true,
 			BLUR_Green = true,
 			BLUR_Blue = true,
 			BLUR_Alpha = true,
-			BLUR_XSize = blurRadius / 720, 
+			BLUR_XSize = blurRadius / 720,
 			BLUR_YSize = blurRadius / 720,
 		})
         _matte = _tmp
@@ -282,14 +287,14 @@ end
 
 local ps_matte_rgb_max = function(x, y, pF, pR)
     local diff = math.max(math.abs(pF.R - pR.R), math.abs(pF.G - pR.G), math.abs(pF.B - pR.B) )
-    
+
     local val = calc_threshold(diff, threshold1, threshold2)
 
     pF.R = val
     pF.G = val
     pF.B = val
     pF.A = val -- matte in Alpha channel too
-    
+
     return pF
 end
 
@@ -304,12 +309,12 @@ local ps_matte_chroma = function(x, y, pF, pR)
     local diff = math.max( math.abs(pFCr - pRCr), math.abs(pFCb - pRCb) )
 
     local val = calc_threshold(diff, threshold1, threshold2)
-    
+
     pF.R = val
     pF.G = val
     pF.B = val
     pF.A = val -- matte in Alpha channel too
-    
+
     return pF
 end
 
@@ -320,14 +325,14 @@ local ps_matte_luma = function(x, y, pF, pR)
     local pFY = ( 0.299  * pF.R ) + ( 0.587 * pF.G ) + ( 0.114 * pF.B )
     local pRY = ( 0.299  * pR.R ) + ( 0.587 * pR.G ) + ( 0.114 * pR.B )
     local diff = math.abs(pFY - pRY)
-    
+
     local val = calc_threshold(diff, threshold1, threshold2)
-    
+
     pF.R = val
     pF.G = val
     pF.B = val
     pF.A = val -- matte in Alpha channel too
-    
+
     return pF
 end
 

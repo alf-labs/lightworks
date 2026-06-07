@@ -1,60 +1,4 @@
-# Ralf's Video Plugins
-
-
-## DaVinci Resolve/Fusion
-
-### Ralf Cam Car Rod Removal (Fuse)
-
-This Fuse detects and removes the gray rod from a camera car attached to HO model trains.
-
-
-Fuse: [`RalfCamCarRodRemoval.fuse`](./fusion/rod_removal/RalfCamCarRodRemoval.fuse)
-
-<p align="center">
-<img title="Example of RalfCamCarRodRemoval render" src="./fusion/images/rod_fuse_result.jpg" >
-</p>
-
-Description: [RalfCamCarRodRemoval](./fusion/rod_removal/) for full details.
-
----
-
-### Ralf Delta Mask (Fuse)
-
-This Fuse essentially recreates a custom-made Difference Keyer combined with a Merge node.
-It's a direct recreation in Fusion of the [LightWorks FX Shader](#ralf-delta-mask-blend-fx-shader) I wrote years ago.
-
-Fuse: [`RalfDeltaMask.fuse`](./fusion/delta_mask/RalfDeltaMask.fuse)
-
-<p align="center">
-<img title="Example of Ralf Delta Mask render" src="./fusion/images/mask_operation1.jpg" >
-</p>
-
-Description: [RalfDeltaMask](./fusion/delta_mask/) for full details.
-
----
-
-## LightWorks
-
-The following FX shader was written for LightWorks 12.0.
-
-### Ralf Delta Mask Blend (FX Shader)
-
-This FX Shader is a 1-pass delta keyer combined with a mask & overlay merge operation.
-
-FX Shader: [`ralf_delta_mask_blend.fx`](./lightworks/fx_shaders/ralf_delta_mask_blend.fx)
-
-<p align="center">
-<img title="Example of Ralf Delta Mask render" src="./lightworks/fx_shaders/blendmask_explanation.jpg" width="75%" >
-</p>
-
-Description: [blendmask_explanation.jpg](./lightworks/fx_shaders/blendmask_explanation.jpg) for full details.
-
-Example of usage:
-["Alco RS-3 Boston & Maine at the Randall Museum"](https://youtu.be/lcj9xRbgRBo?t=174) on YouTube
-
----
-
-### LWAppNet
+# LWAppNet
 
 OK I'm not going to go into too many details because that one is a bit of an
 embarassing case of "when you have a hammer, everything is a nail".
@@ -62,16 +6,16 @@ Or more exactly, when you have Cygwin, everything is a bash shell script.
 
 Bear with me here:
 
-* [`lw_stabilize.sh`](./lightworks/scripts/lw_stabilize.sh) :
+* [`lw_stabilize.sh`](./lw_stabilize.sh) :
   LightWorks 12 did not have any stabilization feature.
   However I had made a _bash script_ to manually run the
   [Deshaker](https://www.guthspot.se/video/deshaker.htm) plugin from
   [VirtualDub](https://www.virtualdub.org/) on a command line.
   What this script does is extract the parameters from a LightWorks "external processing"
-  node, and call [my stabilization script](./lightworks/scripts/stabilize_mobius.sh)
+  node, and call [my stabilization script](./stabilize_mobius.sh)
   with it.
   The generated stabilized script is imported in LightWorks.
-* [`LWAppNet.sh`](./lightworks/scripts/LWAppNet.sh) extracts the parameters from a
+* [`LWAppNet.sh`](./LWAppNet.sh) extracts the parameters from a
   LightWorks "external processing" node and then generates a "Composition" for
   [DaVinci Fusion 8](https://www.blackmagicdesign.com/products/davinciresolve/fusion)
   (back then it wasn't integrated in [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve) yet.) Then it sets up everything so that the result of
@@ -92,7 +36,7 @@ directly. Well, that's where we get the last piece of the puzzle:
 * [LWAppNet](./lightworks/export/LWAppNet/) is a C# Project that creates a very small
   executable that does one thing and one thing only: when invoked as `LWAppNet.exe` by
   LightWorks, it executes a `LWAppNet.bat`.
-* In turn, the [`LWAppNet.bat`](./lightworks/scripts/LWAppNet.bat) calls `LWAppNet.sh`
+* In turn, the [`LWAppNet.bat`](./LWAppNet.bat) calls `LWAppNet.sh`
   using Cygwin.
 
 Thus the workflow is LightWorks > select a clip > Add > Effect > Plugins > "LW App Net",
@@ -101,7 +45,7 @@ LightWorks executes `LWAppNet.exe`
 which executes `cmd /c LWAppNet.bat`
 which executes Cygwin with `bash -i ~/bin/LWAppNet.sh`.
 In the end, all I had to do is rename whatever shell script
-I wanted as `LWAppNet.sh` and I could invoke it from LightWorks. Yeah... >:-/ !
+I wanted as `LWAppNet.sh` and I could invoke it from LightWorks. Yeah... Nail, meet hammer >:-/ !
 
 
 ~~

@@ -1,4 +1,10 @@
 #!/bin/sh
+#
+# License: MIT
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2018 Alf-Labs
+#
+
 set -e
 
 TMP_DIR=/cygdrive/e/Temp
@@ -32,14 +38,14 @@ V_DST_OPTS="-vcodec libx264 -profile:v baseline -level 3.0 -preset fast"
 V_DST_EXT="mov"
 
 # A_BITRATE="-b:a 128k"
-# A_OPTS="-acodec libmp3lame -ac 1 -ar 44100" 
+# A_OPTS="-acodec libmp3lame -ac 1 -ar 44100"
 #A_DST_EXT="mp3"
 ##  -async 1 -- is this what makes the sound weird?
 #A_BITRATE="-b:a 1536k"
-#A_OPTS="-acodec pcm_s16le -ac 1 -ar 48000" 
+#A_OPTS="-acodec pcm_s16le -ac 1 -ar 48000"
 A_BITRATE=""
 # A_OPTS="-acodec copy"
-A_OPTS="-acodec pcm_s16le -ac 2 -ar 48000" 
+A_OPTS="-acodec pcm_s16le -ac 2 -ar 48000"
 A_MOBIUS_OPTS="-acodec pcm_s16le -ac 1 -ar 44100"
 A_DST_EXT="wav"
 
@@ -113,7 +119,7 @@ function parse_args() {
 				;;
 		esac
     done
-    
+
     if [[ -n "$V_FILTER_ROT$V_FILTER_CROP" ]]; then
         V_FILTER="$V_FILTER_ROT"
         if [[ -n "$V_FILTER" && -n "$V_FILTER_CROP" ]]; then
@@ -171,7 +177,7 @@ function process() {
         if [[ "$DST_AVI" == "$SRC" ]]; then DST_AVI="STABI_${SRC}"; fi
         DST_AVI="${DST_AVI%.*}.${V_DST_EXT}"
     fi
-    
+
     if [[ -f "$DST_AVI" ]]; then
         echo "**** KEEPING EXISTING DST: $DST_AVI"
     else
@@ -180,7 +186,7 @@ function process() {
             $NICE "$FFMPEG"  -hide_banner -loglevel panic  -i "$SRC" -f ffmetadata \
                 $(cygpath -w "$TMP_DIR/$TMP_META")
         fi
-    
+
         # Transcode input in something usable by VirtualDub
         if [[ -f "$TMP_DIR/$TMP_SRC" ]]; then
             echo "**** Keeping existing temp: $TMP_DIR/$TMP_SRC"
@@ -208,13 +214,13 @@ function process() {
                 if [[ $(grep "^comment=" "$TMP_DIR/$TMP_META") =~ Mobius ]]; then
                     TMP_A_OPTS="$A_MOBIUS_OPTS"
                 fi
-            
+
                 $DRYRUN $NICE "$FFMPEG" $V_SRC_EXTRA -i "$SRC" \
                     $S_OPTS $T_OPTS $TMP_A_OPTS $A_BITRATE -vn \
                     $(cygpath -w "$TMP_DIR/$TMP_AUD")
             fi
         fi
-        
+
         # Only prepare temp files, don't run deshaker
         if [[ -n "$PREPARE_TEMP_ONLY" ]]; then
             return
@@ -225,7 +231,7 @@ function process() {
             echo "**** Keeping existing deshaked: $TMP_DIR/$TMP_DST"
         else
             $DRYRUN get_lock
-        
+
             $DRYRUN $NICE "$VDUB" \
                 /s $(cygpath -w "$DESHAKE1") \
                 /p $(cygpath -w "$TMP_DIR/$TMP_SRC") $(cygpath -w "$TMP_DIR/$TMP_DST") /r /c /x \
@@ -233,10 +239,10 @@ function process() {
             $DRYRUN $NICE "$VDUB" \
                 /s $(cygpath -w "$DESHAKE2") \
                 /p $(cygpath -w "$TMP_DIR/$TMP_SRC") $(cygpath -w "$TMP_DIR/$TMP_DST") /r /c /x
-        
+
             $DRYRUN release_lock
         fi
-        
+
         # Remix deshaker output with the original sound, rotate and crop from 1080 to 720 on bottom center
         if [[ -f "$TMP_DIR/$TMP_DST" || -n $DRYRUN ]]; then
             if [[ -n "$A_DST_EXT" ]]; then
@@ -255,7 +261,7 @@ function process() {
         fi
 
     fi
-    
+
     if [[ -n "$SINGLE_DST" ]]; then
         echo
         echo "**** PROCESSED SINGLE DEST DONE: $SINGLE_DST"
@@ -295,5 +301,5 @@ for i in "$@"; do
             ;;
     esac
 done
-    
+
 [ -n "$DRYRUN" ] && echo && echo "#### DRY-RUN #### ==> Append -f to really convert." && echo

@@ -1,3 +1,8 @@
+--
+-- License: MIT
+-- SPDX-License-Identifier: MIT
+-- Copyright (c) 2023 Alf-Labs
+--
 
 FuRegisterClass("ExampleRalfFuse2", CT_Tool, {
     REGS_Name = "Example Ralf Fuse2",

@@ -10,7 +10,7 @@
 // the foreground is extracted by comparing with a reference background
 // (typically a clip of the scene with no motion at all).
 // The foreground delta is then blended on top of the background clip.
-// 
+//
 //-------
 // Usage:
 //
@@ -113,8 +113,8 @@ texture OutputPass1 : RenderColorTarget;
 sampler FgSampler = sampler_state { Texture = <fg>; };
 sampler BgSampler = sampler_state { Texture = <bg>; };
 sampler SgSampler = sampler_state { Texture = <sg>; };
-sampler P1Sampler = sampler_state { 
-    Texture = <OutputPass1>; 
+sampler P1Sampler = sampler_state {
+    Texture = <OutputPass1>;
     AddressU  = Clamp;
     AddressV  = Clamp;
     MinFilter = Linear;
@@ -243,8 +243,8 @@ float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD1, float2 xy2 : TEXCOORD2)
     alpha = alpha_sum / 9.0;
     if (alpha_sum <= ExcludeBelow) { alpha = 0.0; }
     if (alpha_sum >= IncludeAbove) { alpha = 1.0; }
-    
-    if (Reveal) { fg = 1.0; } 
+
+    if (Reveal) { fg = 1.0; }
 
     float4 ret = lerp(bg, fg, alpha * Opacity);
     ret.a = 1.0;
@@ -259,31 +259,31 @@ float4 ps_noise_redux_and_combine(float2 uv : TEXCOORD1, float2 xy2 : TEXCOORD2)
 //--------------------------------------------------------------
 
 technique RGB {
-    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > { 
+    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > {
         PixelShader = compile PROFILE ps_blend_rgb();
     }
-    
-    pass Pass2 { 
+
+    pass Pass2 {
         PixelShader = compile PROFILE ps_noise_redux_and_combine();
     }
 }
 
 technique Colour {
-    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > { 
+    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > {
         PixelShader = compile PROFILE ps_blend_chroma();
     }
-    
-    pass Pass2 { 
+
+    pass Pass2 {
         PixelShader = compile PROFILE ps_noise_redux_and_combine();
     }
 }
 
 technique Luminosity {
-    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > { 
+    pass Pass1 <string Script = "RenderColorTarget0 = OutputPass1;"; > {
         PixelShader = compile PROFILE ps_blend_luma();
     }
-    
-    pass Pass2 { 
+
+    pass Pass2 {
         PixelShader = compile PROFILE ps_noise_redux_and_combine();
     }
 }

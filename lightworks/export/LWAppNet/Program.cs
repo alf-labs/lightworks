@@ -1,4 +1,8 @@
-﻿using System;
+﻿// License: MIT
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2018 Alf-Labs
+
+using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;

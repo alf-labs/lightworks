@@ -2,6 +2,10 @@
 #
 # Script to run the stabilizer on a segment that is ALREADY in LightWorks.
 #
+# License: MIT
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2018 Alf-Labs
+#
 # Usage:
 # - In LightWorks, right-click clip / Add > Effect > Plugins > "LW App Test"
 # - In the effect panel, click "List Sources" -- do NOT run "Launch" EVER
@@ -33,6 +37,7 @@
 # IMPORTANT:
 # - LightWorks exports the clip using frame numbers as start/end.
 # - FFMPEG takes decimal seconds for the start and length. There might be a slight discrepency.
+
 
 
 LIST=$(cygpath "C:\\Users\\Public\\Documents\\Lightworks\\Projects\\sources-list.txt")
@@ -94,7 +99,7 @@ function prepare() {
 
 function parse_list() {
     LIST="$1"
-    
+
     LINE=$(grep "^.* ( Frames " $LIST | head -n 1)
     echo "$LINE" >> $T
     SRC=$(cygpath "${LINE%% ( *}")
@@ -105,7 +110,7 @@ function parse_list() {
     F_END="${Frames##* -> }" ; F_END="${F_END%% )*}"
 
     F_PADDING=$(grep -i "PADDING=" $LIST | head -n 1)
-    if [[ -n "$F_PADDING" ]]; then 
+    if [[ -n "$F_PADDING" ]]; then
         F_PADDING="${F_PADDING##*[^0-9]}"
         F_START=$((F_START - $F_PADDING))
         if [[ $F_START -lt 0 ]]; then F_START=0; fi
@@ -115,7 +120,7 @@ function parse_list() {
     # This is the frame rate of the file
     FPS=$(ffprobe.exe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=nokey=1:noprint_wrappers=1 "$WIN_SRC" | head -n 1 | tr -d "\r\n" )
     FPS=$(python -c "print $FPS.")
-    
+
     START=$(python -c "print '%f' % (float($F_START) / $FPS)")
     END=$(  python -c "print '%f' % (float($F_END) / $FPS)")
     LEN=$(  python -c "print '%f' % ($END - $START)")
@@ -130,7 +135,7 @@ function parse_list() {
         TMP_SEED="-tmp-seed=$F_START"
     # fi
     STARTS=( ["$SRC"]="$F_START" )
-    
+
     # Paths
     V_DST_EXT="mov"
     NUM_LIST=$(echo "$LIST" | tr -c -d "0-9")  # extract numbers for LIST filename, if any
@@ -157,7 +162,7 @@ function process() {
     echo
 
     parse_list "$1"
-    
+
     $STABI_CMD -s=$START -t=$LEN $TMP_SEED "-single-dest=$DST_AVI" $STABI_ARGS "$SRC"
     LAST_DST="$DST_AVI"
 }
