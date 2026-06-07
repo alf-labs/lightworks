@@ -88,7 +88,7 @@ _loadedSampleRate = 0       -- the value of _loadedWavFormat.sampleRate, for eas
 -- Use _loadedWavSamples[index] to get signed int16 values.
 -- Use numLoadedWavSamples() to get number of samples (0 means no data available).
 _loadedWavSamples = nil
-_wavOffsetSamples = -1
+_wavOffsetSeconds = -1
 
 _vuMeterLastFrameIndex = -1
 _vuMeterDbValue = -96.0     -- -96 dBFS is the theorical minimum for an audio CD 44100 Hz 16-bit signal
@@ -135,6 +135,7 @@ function Create()
     _inWavOffsetSeconds = self:AddInput("Offset (seconds)", "PlaybackOffsetSeconds", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ScrewControl",
+        INP_DoNotifyChanged  = true,
         INP_Default = 0.0,
         INP_MinScale = 0.0,
         INP_MaxScale = 10.0,
@@ -169,7 +170,7 @@ function Create()
 
     self:AddControlPage("VU Meter")
 
-    _inVuMeterDurationSeconds = self:AddInput("Sample Duration (s)", "VuMeterDurationSeconds", {
+    _inVuMeterDurationSeconds = self:AddInput("Sample (seconds)", "VuMeterDurationSeconds", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.1,
@@ -203,6 +204,13 @@ function Create()
         ICD_Width          = 1,
         })
 
+    _inInfoVuMeterLiveMonitor2 = self:AddInput("Monitor: n/a", "InfoVuMeterLiveMonitor2", {
+        LINKID_DataType    = "Text",
+        INPID_InputControl = "LabelControl",
+        INP_External       = false,
+        INP_Passive        = true,
+        ICD_Width          = 1,
+        })
 
     -- Waveform Parameters
 
@@ -305,7 +313,7 @@ function Create()
         INP_Default = 1,
         })
 
-    _inEqDurationSeconds = self:AddInput("Sample Duration (s)", "EqDurationSeconds", {
+    _inEqDurationSeconds = self:AddInput("Sample (seconds)", "EqDurationSeconds", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.1,
@@ -395,16 +403,25 @@ function Create()
         LINKID_DataType = "Number",
         })
 
+    _outEqBands = {}
+    for idx, band in ipairs(EQ_BANDS) do
+        local outName = string.format("EqBand%d", idx)
+        local fuseOutput = self:AddOutput(outName, outName, {
+            LINKID_DataType = "Number",
+            })
+        _outEqBands[idx] = fuseOutput
+    end
 end
 
 function NotifyChanged(inp, param, time)
-    print("@@ NotifyChanged")
+    -- print("@@ NotifyChanged", inp, param, time)
 
     if inp ~= nil and param ~= nil then
         if inp == _inWavFile then
             readGlobalFile(param.Value)
         elseif inp == _inWavOffsetSeconds then
-            _wavOffsetSamples = -1
+            -- print("@@ NotifyChanged _inWavOffsetSeconds to " .. param.Value)
+            _wavOffsetSeconds = param.Value
         end
     end
 
@@ -479,10 +496,9 @@ function Process(req)
     local numSamples = numLoadedWavSamples()
     -- print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
 
-    if _wavOffsetSamples < 0 then
-        local inWavOffsetSeconds = _inWavOffsetSeconds:GetValue(req).Value
-        _wavOffsetSamples = math.max(0, math.min(numSamples, math.floor(inWavOffsetSeconds * _loadedSampleRate)))
-        print("@@ Offset " .. inWavOffsetSeconds .. " seconds = " .. _wavOffsetSamples .. " samples @ " .. _loadedSampleRate .. "/s")
+    if _wavOffsetSeconds < 0 then
+        _wavOffsetSeconds = _inWavOffsetSeconds:GetValue(req).Value
+        -- print("@@ Offset " .. _wavOffsetSeconds .. " seconds @ " .. _loadedSampleRate .. "/s")
     end
 
     if numSamples > 0 then
@@ -507,7 +523,15 @@ function Process(req)
                         _vuMeterDbValue,
                         _vuMeterLinearMin, _vuMeterLinearValue, _vuMeterLinearMax),
                     LBLC_LabelColor = 3,
-            })
+                })
+                local midSampleIndex = toSampleIndex(frameIndex, frameRate)
+                _inInfoVuMeterLiveMonitor2:SetAttrs({
+                    LINKS_Name = string.format("%d = %d@%d fps + %.2fs@%d/s",
+                        midSampleIndex,
+                        frameIndex, frameRate,
+                        _wavOffsetSeconds, _loadedSampleRate ),
+                    LBLC_LabelColor = 3,
+                })
 
             end
         end
@@ -518,6 +542,13 @@ function Process(req)
     _outVuMeterLinear:Set(req, Number(_vuMeterLinearValue))
     _outVuMeterLinearMin:Set(req, Number(_vuMeterLinearMin))
     _outVuMeterLinearMax:Set(req, Number(_vuMeterLinearMax))
+    for idx, outEqBand in ipairs(_outEqBands) do
+        local value = 0.0
+        if _eqBands ~= nil then
+            value = _eqBands[idx]
+        end
+        outEqBand:Set(req, Number(value))
+    end
 end
 
 function computeVuMeter(req, frameIndex, frameRate, numSamples)
@@ -830,6 +861,9 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     -- so half before and half after. Convert that to number of samples.
     local numSamplesPerPx = inWaveformSecondsX * _loadedSampleRate / areaPxW1
     local numHalfSamples  = inWaveformSecondsX * _loadedSampleRate / 2
+    -- print("@@ drawWaveform: frameIndex " .. frameIndex .. "/" .. frameRate ..
+    --         " + " .. _wavOffsetSeconds .. " @ " .. _loadedSampleRate .. "/s = " .. midSampleIndex ..
+    --         ", areaW " .. areaW .. " = " .. areaPxW1 .. "px, " .. numSamplesPerPx .. " sample/px" )
 
     local precision = 8  -- quality/amount of oversampling (8 in example)
     local ic = ImageChannel(outImg, precision)
@@ -965,12 +999,11 @@ end
 function toSampleIndex(frameIndex, frameRate)
     -- Returns the sample index matching that frameIndex or 0 if invalid.
     -- This does not check for index max bound.
-    local offset = _wavOffsetSamples
     if _loadedWavSamples == nil or frameIndex < 0 then
-        return offset
+        return _wavOffsetSeconds * _loadedSampleRate
     end
     local seconds = frameIndex / frameRate
-    return math.floor(offset + seconds * _loadedSampleRate)
+    return math.floor((_wavOffsetSeconds + seconds) * _loadedSampleRate)
 end
 
 function readGlobalFile(filename)
@@ -1054,7 +1087,7 @@ function _readFile(filename)
             local fmt = ffi.cast("WAV_FMT_Chunk*", fmt_data)
             _loadedWavFormat = fmt
             _loadedSampleRate = fmt.sampleRate
-            _wavOffsetSamples = -1
+            _wavOffsetSeconds = -1
             _initEqBands()
 
             channels = fmt.numChannels
