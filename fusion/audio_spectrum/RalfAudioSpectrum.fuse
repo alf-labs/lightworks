@@ -501,7 +501,7 @@ function Process(req)
 
     local numSamples = numLoadedWavSamples()
     if not isPreCalc then
-        print("@@ Process #" .. frameIndex .. ", start " .. _globalStart .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
+        -- print("@@ Process #" .. frameIndex .. ", start " .. _globalStart .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
         --  DEBUG: dump_object("", self.Comp:GetPrefs())
     end
 
@@ -870,6 +870,7 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     -- so half before and half after. Convert that to number of samples.
     local numSamplesPerPx = inWaveformSecondsX * _loadedSampleRate / areaPxW1
     local numHalfSamples  = inWaveformSecondsX * _loadedSampleRate / 2
+    local numSamplesPerPx1 = numSamplesPerPx
     -- print("@@ drawWaveform: frameIndex " .. frameIndex .. "/" .. frameRate ..
     --         " + " .. _wavOffsetSeconds .. " @ " .. _loadedSampleRate .. "/s = " .. midSampleIndex ..
     --         ", areaW " .. areaW .. " = " .. areaPxW1 .. "px, " .. numSamplesPerPx .. " sample/px" )
@@ -884,9 +885,12 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     cs_filled.Color  = Pixel({R = fillAlpha, G = fillAlpha, B = fillAlpha, A = fillAlpha})
     -- Other options: cs.BlurType, cs.SoftessX/Y/Glow/Blend (see Text+ for example)
 
-    numSamples = numSamples - 1
+    local numSamples1 = numSamples - 1
     local sh_outline
     local sh_filled
+    local xCoords = {}
+    local maxYCoords = {}
+    local minYCoords = {}
 
     if inDisplayAmplitude == 1 then
         sh_outline = Shape()
@@ -905,19 +909,34 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
     end
 
     if inWaveformShape == WaveformShape_HalfWave then
-        sh_filled = Shape()
-        sh_filled:MoveTo(x0, y0)
-
         for px = 0, areaPxW1 do
             local x = x0 + px * scaleX
-            local sampleIndex = midSampleIndex + numSamplesPerPx * px - numHalfSamples
-            sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
-            local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
-            sample = math.abs(sample)
-            local y = y0 + sample * halfWaveHeightY
-            sh_filled:LineTo(x, y)
+
+            local startSampleIndex = midSampleIndex   + px * numSamplesPerPx - numHalfSamples
+            local endSampleIndex   = startSampleIndex + numSamplesPerPx1
+            startSampleIndex = math.floor(math.max(0, math.min(startSampleIndex, numSamples1)))
+            endSampleIndex   = math.floor(math.max(0, math.min(endSampleIndex  , numSamples1)))
+
+            -- Scan the single-pixel window to find the absolute extremes
+            local maxSample = 0.0
+            for s = startSampleIndex, endSampleIndex do
+                local sample = _loadedWavSamples[s] / MAX_INT16
+                sample = math.abs(sample)
+                if sample > maxSample then
+                    maxSample = sample
+                end
+            end
+
+            -- Map to screen coordinates and cache them
+            xCoords[px] = x
+            maxYCoords[px] = y0 + maxSample * halfWaveHeightY
         end
 
+        sh_filled = Shape()
+        sh_filled:LineTo(areaX1, y0)
+        for px = 0, areaPxW1 do
+            sh_filled:LineTo(xCoords[px], maxYCoords[px])
+        end
         sh_filled:LineTo(areaX2, y0)
         sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         sh_filled:Close()
@@ -930,20 +949,36 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
         if self.Status == "OK" then
             ic:PutToImage("CM_Merge", cs_outline)
         end
-    elseif inWaveformShape == WaveformShape_MirrorWave then
-        sh_filled = Shape()
-        sh_filled:MoveTo(x0, y0)
 
+    elseif inWaveformShape == WaveformShape_MirrorWave then
         for px = 0, areaPxW1 do
             local x = x0 + px * scaleX
-            local sampleIndex = midSampleIndex + numSamplesPerPx * px - numHalfSamples
-            sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
-            local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
-            sample = math.abs(sample)
-            local y = y0 + sample * halfWaveHeightY
-            sh_filled:LineTo(x, y)
+
+            local startSampleIndex = midSampleIndex   + px * numSamplesPerPx - numHalfSamples
+            local endSampleIndex   = startSampleIndex + numSamplesPerPx1
+            startSampleIndex = math.floor(math.max(0, math.min(startSampleIndex, numSamples1)))
+            endSampleIndex   = math.floor(math.max(0, math.min(endSampleIndex  , numSamples1)))
+
+            -- Scan the single-pixel window to find the absolute extremes
+            local maxSample = 0.0
+            for s = startSampleIndex, endSampleIndex do
+                local sample = _loadedWavSamples[s] / MAX_INT16
+                sample = math.abs(sample)
+                if sample > maxSample then
+                    maxSample = sample
+                end
+            end
+
+            -- Map to screen coordinates and cache them
+            xCoords[px] = x
+            maxYCoords[px] = y0 + maxSample * halfWaveHeightY
         end
 
+        sh_filled = Shape()
+        sh_filled:LineTo(areaX1, y0)
+        for px = 0, areaPxW1 do
+            sh_filled:LineTo(xCoords[px], maxYCoords[px])
+        end
         sh_filled:LineTo(areaX2, y0)
         sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
         sh_filled:Close()
@@ -973,22 +1008,48 @@ function drawWaveform(req, outImg, frameIndex, frameRate, numSamples)
 
     else
         -- Renders WaveformShape_SignedWave by default
-        sh_outline = Shape()
         for px = 0, areaPxW1 do
             local x = x0 + px * scaleX
-            local sampleIndex = midSampleIndex + numSamplesPerPx * px - numHalfSamples
-            sampleIndex = math.floor(math.max(0, math.min(sampleIndex, numSamples)))
-            local sample = _loadedWavSamples[sampleIndex] / MAX_INT16 -- range -1 to +1
-            local y = y0 + sample * halfWaveHeightY
-            if i == 0 then
-                sh_outline:MoveTo(x, y)
-            else
-                sh_outline:LineTo(x, y)
+
+            local startSampleIndex = midSampleIndex   + px * numSamplesPerPx - numHalfSamples
+            local endSampleIndex   = startSampleIndex + numSamplesPerPx1
+            startSampleIndex = math.floor(math.max(0, math.min(startSampleIndex, numSamples1)))
+            endSampleIndex   = math.floor(math.max(0, math.min(endSampleIndex  , numSamples1)))
+
+            -- Scan the single-pixel window to find the absolute extremes
+            local minSample = 1.0
+            local maxSample = -1.0
+            for s = startSampleIndex, endSampleIndex do
+                local sample = _loadedWavSamples[s] / MAX_INT16
+                if sample > maxSample then
+                    maxSample = sample
+                end
+                if sample < minSample then
+                    minSample = sample
+                end
             end
+
+            -- Map to screen coordinates and cache them
+            xCoords[px] = x
+            maxYCoords[px] = y0 + maxSample * halfWaveHeightY
+            minYCoords[px] = y0 + minSample * halfWaveHeightY
         end
-        -- thickness is in 1/1000th of width of the image
-        -- 8 is precision and flatten_precision (huh??)
-        sh_outline = sh_outline:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
+
+        sh_filled = Shape()
+        sh_filled:MoveTo(xCoords[0], maxYCoords[0])
+        for px = 1, areaPxW1 do
+            sh_filled:LineTo(xCoords[px], maxYCoords[px])
+        end
+        for px = areaPxW1, 0, -1 do
+            sh_filled:LineTo(xCoords[px], minYCoords[px])
+        end
+        sh_outline = sh_filled:OutlineOfShape(thickness, "OLT_Solid", "OJT_Round", precision, "SWM_Normal", precision)
+        sh_filled:Close()
+
+        ic:ShapeFill(sh_filled)
+        if self.Status == "OK" then
+            ic:PutToImage("CM_Merge", cs_filled)
+        end
         ic:ShapeFill(sh_outline)
         if self.Status == "OK" then
             ic:PutToImage("CM_Merge", cs_outline)

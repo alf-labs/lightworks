@@ -10,7 +10,7 @@ This DaVinci Fusion plugin renders a WAV as a waveform, and/or as an EQ bar spec
 
 An example of rendering, click the image to play:
 
-[![Watch the video](https://img.youtube.com/vi/_kV6t9HEcqc/hqdefault.jpg)](https://youtu.be/_kV6t9HEcqc)
+[![Watch the video](https://img.youtube.com/vi/auhcC5L7DoA/hqdefault.jpg)](https://youtu.be/auhcC5L7DoA)
 
 The rest of this document focuses on usage explanations, and implementation details.
 
