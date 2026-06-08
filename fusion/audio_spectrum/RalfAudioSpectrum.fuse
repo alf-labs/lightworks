@@ -85,6 +85,8 @@ local eqSmoothingFactor = 0.25
 -- Globals persist between Process calls once the Fuse plugin is loaded.
 -- Exhausting memory will likely crash DaVinci.
 
+_globalStart = 0
+
 _loadedFileName = ""
 _loadedFileStatus = ""
 _loadedWavFormat = nil      -- an FFI struct of WAV_FMT_Chunk type
@@ -482,28 +484,30 @@ function Process(req)
 
     -- get the frame rate of the comp set in the preferences
     local frameRate = self.Comp:GetPrefs("Comp.FrameFormat.Rate")
+    _globalStart = self.Comp:GetPrefs("Comp.Unsorted.GlobalStart")
+
     local frameIndex = req.Time
-    if frameIndex == nil or outImg == nil then
-        -- This can't happen, right? Right?
-        _outImage:Set(req, outImg)
-        return
-    end
     if frameIndex < 0 then
         -- This does happen if an Adjustment Clip is extended on the left.
+        print("@@ Process, Warning frameIndex " .. frameIndex .. " is negative.")
         frameIndex = 0
     end
 
     if _loadedWavSamples == nil then
         local infile = _inWavFile:GetValue(req).Value
+        print("@@ Process loading " .. infile)
         readGlobalFile(infile)
     end
 
     local numSamples = numLoadedWavSamples()
-    -- print("@@ Process #" .. frameIndex .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
+    if not isPreCalc then
+        print("@@ Process #" .. frameIndex .. ", start " .. _globalStart .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
+        --  DEBUG: dump_object("", self.Comp:GetPrefs())
+    end
 
     if _wavOffsetSeconds < 0 then
         _wavOffsetSeconds = _inWavOffsetSeconds:GetValue(req).Value
-        -- print("@@ Offset " .. _wavOffsetSeconds .. " seconds @ " .. _loadedSampleRate .. "/s")
+        print("@@ WAV Offset " .. _wavOffsetSeconds .. " seconds @ " .. _loadedSampleRate .. "/s")
     end
 
     if numSamples > 0 then
@@ -574,7 +578,7 @@ function computeVuMeter(req, frameIndex, frameRate, numSamples)
     local endSampleIndex = math.min(midSampleIndex + inVuMeterDurationSeconds * _loadedSampleRate, numSamples) - 1
 
     _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, inVuMeterSmoothingFactor)
-    if frameIndex == 0 then
+    if frameIndex == _globalStart then
         -- Reset min/max if starting to play from the beginning.
         _vuMeterLinearMin = _vuMeterLinearValue
         _vuMeterLinearMax = _vuMeterLinearValue
@@ -1173,4 +1177,62 @@ end
 -- Get the base filename from a filepath
 function getBasename(filePath)
     return string.match(filePath, "([^/\\]+)$")
+end
+
+function dump_object(prefix, obj)
+
+    if (type(obj)) == "cdata" then
+        -- Get the internal type ID of the cdata object
+        local ctype_id = ffi.typeof(obj)
+
+        print(prefix .. "--- cdata FFI Struct Fields ---", ctype_id)
+        -- Reflect into the struct members using typeinfo
+        local i = 0
+        local unknown = 0
+        while true do
+            local info = ffi.typeinfo(ctype_id, i)
+            if not info then break end
+            if info.name then
+                print(prefix .. string.format("  [%d] Field: %s", i, info.name))
+                unknown = 0
+            else
+                print(prefix .. string.format("  [%d] ??: ", i), info)
+                if type(info) == "table" then
+                    dump_object(prefix .. "> ", info)
+                end
+                unknown = unknown + 1
+                if unknown >= 2 then break end
+            end
+            i = i + 1
+        end
+        return
+    end
+
+    if type(obj) ~= "table" then
+        print(prefix .. "Not a standard Lua object/table. Type is: " .. type(obj))
+        return
+    end
+
+    print(prefix .. "--- Instance Fields ---")
+    for key, value in pairs(obj) do
+        print(prefix .. string.format("  %s (%s)", tostring(key), type(value)))
+        if type(value) == "table" then
+            dump_object(prefix .. "> ", value)
+        end
+    end
+
+    -- Look for methods/inherited fields in the metatable
+    local mt = getmetatable(obj)
+    if mt and mt.__index then
+        print(prefix .. "--- Inherited Fields & Methods (__index) ---")
+        local target = mt.__index
+        -- If __index is a table, we can loop through it
+        if type(target) == "table" then
+            for key, value in pairs(target) do
+                print(prefix .. string.format("  %s (%s)", tostring(key), type(value)))
+            end
+        elseif type(target) == "function" then
+            print(prefix .. "  __index is a function; fields cannot be listed dynamically.")
+        end
+    end
 end
