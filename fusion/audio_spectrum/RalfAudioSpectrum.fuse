@@ -227,7 +227,6 @@ function Create()
         LINKID_DataType = "Number",
         INPID_InputControl = "CheckboxControl",
         INP_DoNotifyChanged = true,
-        INP_External = false,
         INP_Default = 1,
         })
 
@@ -271,7 +270,6 @@ function Create()
         LINKID_DataType = "Number",
         INPID_InputControl = "CheckboxControl",
         INP_DoNotifyChanged = true,
-        INP_External = false,
         INP_Default = 1,
         })
 
@@ -316,7 +314,6 @@ function Create()
         LINKID_DataType = "Number",
         INPID_InputControl = "CheckboxControl",
         INP_DoNotifyChanged = true,
-        INP_External = false,
         INP_Default = 1,
         })
 
@@ -435,6 +432,7 @@ function NotifyChanged(inp, param, time)
 end
 
 function Process(req)
+    local startTime = os.clock()
     -- It seems a CT_SourceTools inherits Width/Height/Scale properties whereas CT_Tool does not.
     -- This part here is mirrored from the Fuse SourceTool Sample.
 	local realWidth = Width;
@@ -500,8 +498,8 @@ function Process(req)
     end
 
     local numSamples = numLoadedWavSamples()
+    print("@@ Process  #" .. frameIndex .. ", start " .. _globalStart .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
     if not isPreCalc then
-        -- print("@@ Process #" .. frameIndex .. ", start " .. _globalStart .. ", fps " .. frameRate .. ", " .. numSamples .. " samples", isPreCalc)
         --  DEBUG: dump_object("", self.Comp:GetPrefs())
     end
 
@@ -558,6 +556,7 @@ function Process(req)
         end
         outEqBand:Set(req, Number(value))
     end
+    print("@@   Process " .. frameIndex .. ", " .. 1000 * (os.clock() - startTime) .. " ms")
 end
 
 function computeVuMeter(req, frameIndex, frameRate, numSamples)
