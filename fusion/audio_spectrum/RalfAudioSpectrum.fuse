@@ -78,9 +78,6 @@ local EQ_BANDS = {
     { name = "Highs 2",  f0 = 8000.0},
 }
 
--- Filter Ballistics (Smoothing for the EQ bars, TBD make params)
-local eqSmoothingFactor = 0.25
-
 -- ///////////// GLOBALS ///////////////
 -- Globals persist between Process calls once the Fuse plugin is loaded.
 -- Exhausting memory will likely crash DaVinci.
@@ -177,7 +174,7 @@ function Create()
 
     self:AddControlPage("VU Meter")
 
-    _inVuMeterDurationSeconds = self:AddInput("Sample (seconds)", "VuMeterDurationSeconds", {
+    _inVuMeterDurationSeconds = self:AddInput("Samples (seconds)", "VuMeterDurationSeconds", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.1,
@@ -186,12 +183,26 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inVuMeterSmoothingFactor = self:AddInput("Smoothing %", "VuMeterSmoothingFactor", {
+    -- SmoothingFactor is the % of the old value to keep.
+    -- Nitpick: It's not a % if the value is in the [0..1] range, and I don't even care!
+    -- SmoothingFactor == 0 ==> 100% of the old value is used, the new value is never used.
+    -- SmoothingFactor == 1 ==> 0% of the old value is used, the new value is instantly used.
+    -- 0.1 (10%) makes a good fast change, 0.5 (50%) makes it a very slow progressive change.
+    _inVuMeterSmoothingFactorDown = self:AddInput("Smoothing % Down", "VuMeterSmoothingFactorDown", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.0,
         INP_MaxScale = 1.0,
-        INP_Default = 0.5,
+        INP_Default = 0.2,
+        ICD_Center = 1,
+        })
+
+    _inVuMeterSmoothingFactorUp = self:AddInput("Smoothing % Up", "VuMeterSmoothingFactorUp", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.05,
         ICD_Center = 1,
         })
 
@@ -231,7 +242,7 @@ function Create()
         })
 
     -- How many seconds to display in the image width (centered)
-    _inWaveformSecondsX = self:AddInput("Seconds X", "WaveformSecondsX", {
+    _inWaveformSecondsX = self:AddInput("Horiz Duration (seconds)", "WaveformSecondsX", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ScrewControl",
         INP_Default = 1.0,
@@ -255,12 +266,15 @@ function Create()
         INP_DefaultY = 0.30,
         })
 
+    -- inWaveformAmpliFactor is the % to _reduce_ the amplitude when the vu-meter is 0.
+    -- inWaveformAmpliFactor == 0 --> waveform height never changes.
+    -- inWaveformAmpliFactor == 1 --> wafeform height is 100% proportional to vu-meter value.
     _inWaveformAmpliFactor = self:AddInput("Amplitude Factor", "WaveformAmpliFactor", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinAllowed = 0.0,
         INP_MaxAllowed = 1.0,
-        INP_Default = 0.5,
+        INP_Default = 0.75,
         INP_MinScale = 0.0,
         INP_MaxScale = 1.0,
         ICD_Center = 1,
@@ -317,7 +331,7 @@ function Create()
         INP_Default = 1,
         })
 
-    _inEqDurationSeconds = self:AddInput("Sample (seconds)", "EqDurationSeconds", {
+    _inEqDurationSeconds = self:AddInput("Samples (seconds)", "EqDurationSeconds", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.1,
@@ -326,12 +340,22 @@ function Create()
         ICD_Center = 1,
         })
 
-    _inEqSmoothingFactor = self:AddInput("Smoothing %", "EqSmoothingFactor", {
+    -- See SmoothingFactor explanation for Vu Meter.
+    _inEqSmoothingFactorDown = self:AddInput("Smoothing % Down", "EqSmoothingFactorDown", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
         INP_MinScale = 0.0,
         INP_MaxScale = 1.0,
-        INP_Default = 0.5,
+        INP_Default = 0.2,
+        ICD_Center = 1,
+        })
+
+    _inEqSmoothingFactorUp = self:AddInput("Smoothing % Up", "EqSmoothingFactorUp", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+        INP_Default = 0.05,
         ICD_Center = 1,
         })
 
@@ -351,6 +375,9 @@ function Create()
         INP_DefaultY = 0.01,
         })
 
+    -- Nitpick: It's not a % if the value is in the [0..1] range, and I don't even care!
+    -- Gap == 0 ==> no gap between the EQ bars
+    -- Gap == 1 ==> 100% gap, EQ bars not visible.
     _inEqGapPercentage = self:AddInput("Gap %", "EqGapPercentage", {
         LINKID_DataType = "Number",
         INPID_InputControl = "SliderControl",
@@ -569,14 +596,17 @@ function computeVuMeter(req, frameIndex, frameRate, numSamples)
     end
 
     -- Smoothing: 0 = instant/0% smoothing; 1 = 100% smoothing (won't change)
-    local inVuMeterSmoothingFactor = _inVuMeterSmoothingFactor:GetValue(req).Value
+    local inVuMeterSmoothingFactorDn = _inVuMeterSmoothingFactorDown:GetValue(req).Value
+    local inVuMeterSmoothingFactorUp = _inVuMeterSmoothingFactorUp:GetValue(req).Value
     local inVuMeterDurationSeconds = _inVuMeterDurationSeconds:GetValue(req).Value
 
     -- The index of the sample in the middle
     local midSampleIndex = toSampleIndex(frameIndex, frameRate)
     local endSampleIndex = math.min(midSampleIndex + inVuMeterDurationSeconds * _loadedSampleRate, numSamples) - 1
 
-    _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(_vuMeterLinearValue, midSampleIndex, endSampleIndex, inVuMeterSmoothingFactor)
+    _vuMeterDbValue, _vuMeterLinearValue = _computeVuMeter(
+        _vuMeterLinearValue, midSampleIndex, endSampleIndex,
+        inVuMeterSmoothingFactorDn, inVuMeterSmoothingFactorUp)
     if frameIndex == _globalStart then
         -- Reset min/max if starting to play from the beginning.
         _vuMeterLinearMin = _vuMeterLinearValue
@@ -595,7 +625,7 @@ function computeVuMeter(req, frameIndex, frameRate, numSamples)
     _vuMeterLastFrameIndex = frameIndex
 end
 
-function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
+function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactorDown, smoothingFactorUp)
     local lenSamples = endIndex - startIndex + 1
     -- print("@@ _computeVuMeter from " .. startIndex .. " to " .. endIndex .. ", len " .. lenSamples)
     if lenSamples <= 0 then
@@ -610,7 +640,11 @@ function _computeVuMeter(linearValue, startIndex, endIndex, smoothingFactor)
     end
 
     local rms = math.sqrt(sumSquares / lenSamples)
-    linearValue = smoothingFactor * linearValue + (1 - smoothingFactor) * rms
+    if rms > linearValue then
+        linearValue = smoothingFactorUp   * linearValue + (1 - smoothingFactorUp  ) * rms
+    else
+        linearValue = smoothingFactorDown * linearValue + (1 - smoothingFactorDown) * rms
+    end
 
     local currentDb = -96.0
     if linearValue > 0.00001 then
@@ -627,13 +661,14 @@ function _computeEqBands(req, frameIndex, frameRate, numSamples)
     end
 
     -- Smoothing: 0 = instant/0% smoothing; 1 = 100% smoothing (won't change)
-    local inEqSmoothingFactor = _inEqSmoothingFactor:GetValue(req).Value
+    local inEqSmoothingFactorDn = _inEqSmoothingFactorDown:GetValue(req).Value
+    local inEqSmoothingFactorUp = _inEqSmoothingFactorUp:GetValue(req).Value
     local inEqDurationSeconds = _inEqDurationSeconds:GetValue(req).Value
 
     -- The index of the sample in the middle
     local midSampleIndex = toSampleIndex(frameIndex, frameRate)
     local endSampleIndex = math.min(midSampleIndex + inEqDurationSeconds * _loadedSampleRate, numSamples) - 1
-    _updateEqBands(midSampleIndex, endSampleIndex, inEqSmoothingFactor)
+    _updateEqBands(midSampleIndex, endSampleIndex, inEqSmoothingFactorDn, inEqSmoothingFactorUp)
 
     _eqBandsLastFrameIndex = frameIndex
 end
@@ -681,7 +716,7 @@ function _initEqBands()
     -- print("@@ _initEqBands DONE ", _eqBands, #_eqBands)
 end
 
-function _updateEqBands(startIndex, endIndex, smoothingFactor)
+function _updateEqBands(startIndex, endIndex, smoothingFactorDown, smoothingFactorUp)
     -- Processes an audio chunk and updates the linear volume levels for every band
     -- Caller should not invoke this if _loadedWavSamples or _loadedSampleRate are nil/0. We don't check again here.
     -- Fills the global _eqBands array (initialized by _initEqBands)
@@ -727,9 +762,14 @@ function _updateEqBands(startIndex, endIndex, smoothingFactor)
         end
 
         -- Apply smoothing on the EQ bars
-        band.visual_linear = (smoothingFactor * band.visual_linear) + ((1 - smoothingFactor) * rms)
-
-        _eqBands[idx] = band.visual_linear
+        local value = band.visual_linear
+        if rms > value then
+            value = (smoothingFactorUp   * value) + ((1 - smoothingFactorUp  ) * rms)
+        else
+            value = (smoothingFactorDown * value) + ((1 - smoothingFactorDown) * rms)
+        end
+        band.visual_linear = value
+        _eqBands[idx] = value
     end
 end
 
@@ -776,6 +816,7 @@ function drawEqBands(req, outImg)
     -- gap between bands
     local gw = areaW * inEqGapPercentage / math.max(1, (num_bands - 1))
     -- width of each band
+    -- TBD: consider changing band width with frequency (larger for lower frequencies)
     local xw = (areaW * (1 - inEqGapPercentage)) / num_bands
     local y1 = areaY1
     local y2 = areaY2
